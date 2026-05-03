@@ -247,6 +247,11 @@ function votesFill(
   range: { min: number; max: number } | null,
 ): string {
   const v = votesValue(result, focusParty);
+  // A region with literally zero votes for the focus party
+  // (Ahvenanmaa for any mainland party, e.g.) is effectively
+  // no-data — render with crosshatch instead of dragging the
+  // log floor down and compressing the rest of the map.
+  if (focusParty && v === 0) return NODATA_FILL;
   if (range) {
     // Avoid log(0). Use max(1, …) — votes are always ≥ 0 in
     // practice; this guards against future no-data zeros.

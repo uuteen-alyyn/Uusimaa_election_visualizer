@@ -238,9 +238,10 @@ function VotesBody({
         aria-hidden="true"
       />
       {range ? (
-        <RangeLabels
-          left={formatVotes(range.min)}
-          right={formatVotes(range.max)}
+        <BoldRangeLabels
+          left={formatVotesFull(range.min)}
+          right={formatVotesFull(range.max)}
+          caption={focusParty ? "ääniä näkyvällä alueella" : "annettuja ääniä"}
         />
       ) : (
         <div
@@ -264,12 +265,56 @@ function VotesBody({
   );
 }
 
-function formatVotes(v: number): string {
-  if (v >= 1_000_000) return (v / 1_000_000).toFixed(1) + "M";
-  if (v >= 10_000) return Math.round(v / 1000) + "k";
-  if (v >= 1000) return (v / 1000).toFixed(1) + "k";
-  return String(Math.round(v));
+/** Range labels under the bar: bigger + a tiny caption underneath
+ *  so the absolute scale is impossible to miss. The user can see
+ *  at a glance that a saturated cell on the KOK map (148k ääntä)
+ *  isn't equivalent to a saturated cell on the KD map (22k ääntä). */
+function BoldRangeLabels({
+  left,
+  right,
+  caption,
+}: {
+  left: string;
+  right: string;
+  caption: string;
+}): JSX.Element {
+  return (
+    <>
+      <div
+        style={{
+          display: "flex",
+          justifyContent: "space-between",
+          fontSize: 12,
+          fontFamily: "var(--font-mono)",
+          fontWeight: 600,
+          marginTop: 6,
+        }}
+      >
+        <span>{left}</span>
+        <span>{right}</span>
+      </div>
+      <div
+        style={{
+          fontSize: 10,
+          opacity: 0.55,
+          fontStyle: "italic",
+          textAlign: "center",
+          marginTop: 2,
+        }}
+      >
+        {caption}
+      </div>
+    </>
+  );
 }
+
+const NUM_FI_LEGEND = new Intl.NumberFormat("fi-FI");
+
+/** Full Finnish-formatted vote count — "148 110" not "148k". */
+function formatVotesFull(v: number): string {
+  return NUM_FI_LEGEND.format(Math.round(v));
+}
+
 
 /* ─── Change (diverging) ────────────────────────────────────── */
 

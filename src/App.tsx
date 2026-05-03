@@ -493,8 +493,10 @@ export function App(): JSX.Element {
 
   /** Range of votes across visible regions — party-specific when a
    *  focus party is set (the votes mode's party picker), total
-   *  otherwise. Keeps the votes ramp readable at kunta level where
-   *  one big city often dwarfs every other kunta in the same vp. */
+   *  otherwise. Skips regions whose value is literally 0 for the
+   *  party (Ahvenanmaa for mainland parties, etc.) — they're
+   *  effectively no-data and would otherwise drag `logMin` to 0
+   *  and compress every real-data region into the top 1–2 buckets. */
   const votesRange = useMemo(() => {
     if (mode !== "votes" || !currentResults) return null;
     let min = Infinity;
@@ -503,6 +505,7 @@ export function App(): JSX.Element {
       const r = currentResults.get(id);
       if (!r) continue;
       const v = votesValue(r, focusParty);
+      if (focusParty && v === 0) continue; // treat as no-data
       if (v < min) min = v;
       if (v > max) max = v;
     }
