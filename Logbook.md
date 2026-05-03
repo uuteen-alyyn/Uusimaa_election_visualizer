@@ -168,6 +168,87 @@ files changed, build status, test count, commit hash, decisions, notes.
 - Next: Phase 0 (3/4) adds the elections submodule + extracts the
   full design-token system from `prototype/Wireframes.html` into
   `src/styles/tokens.css` and `src/styles/primitives.css`.
+
+---
+
+## ENTRY Phase 0 (3/4) — elections submodule + design tokens 2026-05-03
+
+**What was done**
+
+- Added `submodules/elections/` via
+  `git submodule add https://github.com/uuteen-alyyn/vihrea-vaalidata-tilastotAPI-MCP submodules/elections`
+  Pinned at `fc547e2` (`feat(query): add top_n + top_by post-filters
+  to query_election_data`, 2026-04-30T15:52:22+03:00).
+- Extracted the full design-token system from
+  `prototype/Wireframes.html`'s `<style>` block into:
+  * `src/styles/tokens.css` — all CSS custom properties: surfaces
+    (ink/paper variants), 8 party hues, change indicators, the three
+    map ramps (diverging change, single-hue support, ochre votes),
+    typography stack, shape tokens (radii, borders), drop shadows
+  * `src/styles/primitives.css` — class definitions for the
+    hand-drawn UI primitives: `.box`, `.pill`, `.chip`, `.btn`,
+    `.tabs`/`.tab`, `.bar-row`, `.bar`, `.swatch`, `.dot`, `.hair`,
+    `.note`, `.scribble`, `.uline`, `.scalebar`, `.nodata`, `.crumb`,
+    `.stamp`. All reference token variables — no hard-coded colors.
+  * `src/styles/main.css` rewritten as the entry: imports
+    `tokens.css` + `primitives.css`, then page-level globals.
+- Vitest picked up tests from the elections submodule on first run
+  (3 failed, 6 passed, 100 individual). Added a separate
+  `vitest.config.ts` excluding `**/submodules/**` and
+  `**/prototype/**` from discovery. Vite config stays clean.
+
+**Decisions**
+
+- **Separate `vitest.config.ts`** instead of folding `test:` into
+  `vite.config.ts`. Vitest's bundled vite is older than top-level
+  vite (6.4.2), and the type-augmentation dance through
+  `vitest/config` triggers TS errors due to the version mismatch.
+  Separate config files avoid the conflict cleanly.
+- **Token comments** preserved in `tokens.css` — palette names match
+  the README and PRODUCT_NOTES.md so future readers can cross-reference.
+- **`.crumb`, `.scalebar`, `.nodata`, `.stamp`** ported now even
+  though they're used in Phase 2/3/4 components. Better to have the
+  whole primitives surface in one PR than to split.
+- **Skipped**: the prototype's `.i-zoom-in`/`.i-search` etc. pseudo-
+  icon classes — too tied to the prototype's CSS-only icon trick.
+  Phase 3 will use real SVG icons or text glyphs as needed.
+
+**Files changed**
+
+- New: `.gitmodules`, `submodules/elections` (gitlink at `fc547e2`),
+  `src/styles/tokens.css`, `src/styles/primitives.css`,
+  `vitest.config.ts`
+- Modified: `vite.config.ts` (drop the `test:` block; vitest reads
+  `vitest.config.ts` instead), `src/styles/main.css` (now imports
+  tokens + primitives + page-level globals only)
+
+**Build status**
+
+- `npm run typecheck` — clean
+- `npm run build` — clean, 1.43s, 46 KB gz JS, 1.53 KB gz CSS
+- `npm test` — 0 visualizer tests, exits 0 (submodules excluded)
+
+**Test count**
+
+- 0 / 0 (visualizer has no tests yet; first batch lands in Phase 1)
+
+**Commit hash**
+
+- Pending this session
+
+**Notes**
+
+- Submodule install was clone-only — submodule's own `npm install`
+  is not run. We don't need its node_modules; Phase 1 will figure out
+  whether to import the submodule's source directly (with `tsx`)
+  or build it first.
+- Bundle CSS jumped from 0.44 KB → 4.55 KB (1.53 KB gz) reflecting
+  the full token + primitive set. Still tiny.
+- Next: Phase 0 (4/4) adds the typed surface — `src/types/elections.ts`,
+  `src/data/elections-source.ts` (with `ElectionDataSource` interface
+  and `LocalFixtureSource` impl), `src/data/catalog.ts` (port of
+  ELECTIONS / ELECTION_TYPES from the prototype). After that,
+  Phase 0 is closed and we move to Phase 1.
 - Server team's deploy answer is captured verbatim in `BACKLOG.md`'s
   Phase 5 references; the Caddyfile snippet is in the implementation
   plan and will be committed under `deploy/Caddyfile.snippet` in

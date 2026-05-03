@@ -1,16 +1,17 @@
 /*
- * Phase 0 placeholder styles.
- * Full design tokens (paper, ink, party colors, type ramp) extracted
- * from prototype/Wireframes.html arrive in Phase 0 (3/4) as
- * tokens.css + primitives.css.
+ * Entry stylesheet — imports tokens + primitives, then page-level
+ * globals (body reset, header/footer chrome).
  */
+
+@import "./tokens.css";
+@import "./primitives.css";
 
 html,
 body {
   margin: 0;
-  background: #efebe0;
-  color: #1a1a1a;
-  font-family: "Architects Daughter", system-ui, sans-serif;
+  background: var(--page-bg);
+  color: var(--ink);
+  font-family: var(--font-body);
 }
 
 .page {
@@ -22,7 +23,7 @@ body {
 }
 
 .page header h1 {
-  font-family: "Caveat", cursive;
+  font-family: var(--font-display);
   font-weight: 700;
   font-size: 36px;
   margin: 0 0 8px;
@@ -37,7 +38,7 @@ body {
 .page footer {
   margin-top: auto;
   padding-top: 24px;
-  border-top: 1px solid rgba(26, 26, 26, 0.2);
+  border-top: 1px solid var(--hair);
   font-size: 11px;
   opacity: 0.6;
 }

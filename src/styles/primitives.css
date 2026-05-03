@@ -1,0 +1,248 @@
+/*
+ * Hand-drawn UI primitives — pill, chip, box, btn, bar-row, crumb,
+ * scalebar, nodata crosshatch, stamp.
+ *
+ * Ported from prototype/Wireframes.html <style>. All colors and
+ * shapes reference tokens.css variables — do not hard-code.
+ */
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+/* ─── Type helpers ──────────────────────────────────────────── */
+
+.h {
+  font-family: var(--font-display);
+  font-weight: 700;
+  letter-spacing: 0.2px;
+}
+
+.mono {
+  font-family: var(--font-mono);
+}
+
+/* ─── Box ──────────────────────────────────────────────────── */
+
+.box {
+  border: var(--border-default) solid var(--line);
+  border-radius: var(--radius-box);
+  background: var(--paper);
+}
+
+.box.soft {
+  background: var(--paper-2);
+}
+
+.box.dashed {
+  border-style: dashed;
+  border-color: var(--hair);
+}
+
+/* ─── Pill ─────────────────────────────────────────────────── */
+
+.pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border: var(--border-thin) solid var(--line);
+  border-radius: var(--radius-pill);
+  padding: 3px 10px;
+  background: var(--paper);
+  font-size: 13px;
+}
+
+.pill.on {
+  background: var(--ink);
+  color: var(--paper);
+}
+
+/* ─── Chip ─────────────────────────────────────────────────── */
+
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-chip);
+  padding: 2px 7px;
+  font-size: 12px;
+  background: var(--paper);
+}
+
+/* ─── Swatch / dot ─────────────────────────────────────────── */
+
+.swatch {
+  width: 10px;
+  height: 10px;
+  border-radius: 2px;
+  border: 1px solid rgba(0, 0, 0, 0.3);
+  display: inline-block;
+}
+
+.dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  display: inline-block;
+  border: 1px solid rgba(0, 0, 0, 0.3);
+}
+
+.hair {
+  height: 1px;
+  background: var(--hair);
+  width: 100%;
+}
+
+/* ─── Buttons ──────────────────────────────────────────────── */
+
+.btn {
+  border: var(--border-default) solid var(--line);
+  background: var(--paper);
+  padding: 5px 10px;
+  border-radius: var(--radius-box);
+  font-family: inherit;
+  font-size: 13px;
+  cursor: pointer;
+  transform: rotate(-0.2deg);
+}
+
+.btn.primary {
+  background: var(--ink);
+  color: var(--paper);
+}
+
+/* ─── Tab strip ────────────────────────────────────────────── */
+
+.tabs {
+  display: flex;
+  gap: 0;
+  border-bottom: var(--border-default) solid var(--line);
+}
+
+.tab {
+  padding: 7px 14px;
+  border: var(--border-default) solid var(--line);
+  border-bottom: none;
+  border-top-left-radius: var(--radius-card);
+  border-top-right-radius: var(--radius-card);
+  background: var(--paper-2);
+  font-size: 13px;
+  margin-right: -1.5px;
+  cursor: pointer;
+}
+
+.tab.on {
+  background: var(--paper);
+  font-weight: 700;
+  position: relative;
+  top: 1px;
+  border-bottom: var(--border-default) solid var(--paper);
+}
+
+/* ─── Bar chart row ────────────────────────────────────────── */
+
+.bar-row {
+  display: grid;
+  grid-template-columns: 70px 1fr 44px;
+  gap: 8px;
+  align-items: center;
+  margin: 4px 0;
+  font-size: 12px;
+}
+
+.bar {
+  height: 10px;
+  border: 1px solid var(--line);
+  border-radius: 2px;
+  position: relative;
+  background: var(--paper);
+}
+
+.bar > span {
+  display: block;
+  height: 100%;
+}
+
+/* ─── Annotations & decoration ─────────────────────────────── */
+
+.note {
+  font-family: var(--font-display);
+  font-size: 18px;
+  color: var(--ink-soft);
+}
+
+.scribble {
+  background: repeating-linear-gradient(
+    135deg,
+    transparent 0 7px,
+    rgba(0, 0, 0, 0.08) 7px 8px
+  );
+}
+
+.uline {
+  text-decoration: underline wavy rgba(0, 0, 0, 0.35);
+  text-underline-offset: 3px;
+}
+
+/* ─── Map legend / scalebar ────────────────────────────────── */
+
+.scalebar {
+  height: 10px;
+  border: 1px solid var(--line);
+  border-radius: 2px;
+  background: linear-gradient(
+    90deg,
+    var(--ramp-change-5),
+    var(--ramp-change-3) 50%,
+    var(--ramp-change-1)
+  );
+}
+
+.scalebar.single {
+  background: linear-gradient(
+    90deg,
+    var(--ramp-support-1),
+    var(--ramp-support-6)
+  );
+}
+
+/* ─── No-data crosshatch ───────────────────────────────────── */
+
+.nodata {
+  background: repeating-linear-gradient(
+    45deg,
+    #e6e0cf 0 5px,
+    #d8d1bd 5px 6px
+  );
+}
+
+/* ─── Breadcrumb ───────────────────────────────────────────── */
+
+.crumb {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 14px;
+}
+
+.crumb .sep {
+  opacity: 0.5;
+}
+
+/* ─── Loading / status stamp ───────────────────────────────── */
+
+.stamp {
+  position: absolute;
+  right: 14px;
+  top: 14px;
+  transform: rotate(4deg);
+  border: 2px dashed rgba(0, 0, 0, 0.3);
+  padding: 4px 9px;
+  border-radius: var(--radius-box);
+  font-family: var(--font-display);
+  font-size: 16px;
+  color: rgba(0, 0, 0, 0.5);
+}

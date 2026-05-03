@@ -1,0 +1,3 @@
+[submodule "submodules/elections"]
+	path = submodules/elections
+	url = https://github.com/uuteen-alyyn/vihrea-vaalidata-tilastotAPI-MCP

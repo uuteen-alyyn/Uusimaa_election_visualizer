@@ -107,10 +107,11 @@ Uusimaa_election_visualizer/
 - [x] Install dev deps: `typescript`, `vite`, `vitest`,
       `@vitejs/plugin-react`, `@types/{react,react-dom,node}`, `eslint`,
       `tsx`
-- [ ] Add elections submodule:
+- [x] Add elections submodule:
       `git submodule add https://github.com/uuteen-alyyn/vihrea-vaalidata-tilastotAPI-MCP submodules/elections`
-- [ ] Pin submodule to a known-good SHA; record SHA in logbook
-- [ ] Extract design tokens from
+- [x] Pin submodule to a known-good SHA; record SHA in logbook
+      *(pinned at `fc547e2`, 2026-04-30)*
+- [x] Extract design tokens from
       [prototype/Wireframes.html](prototype/Wireframes.html) `<style>`
       block into `src/styles/tokens.css` + `src/styles/primitives.css`
 - [x] Add Google Fonts link (Caveat, Architects Daughter, JetBrains
