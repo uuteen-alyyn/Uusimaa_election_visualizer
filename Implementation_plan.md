@@ -262,33 +262,36 @@ against real data.
         party-share bars, top candidates list (scrollable)
 - [ ] Port `WorkflowBar` + `WorkflowBuilder` from
       [prototype/wf-workflows.jsx](prototype/wf-workflows.jsx)
-- [ ] Port `BUILTIN_WORKFLOWS`, `WF_KINDS`, `workflowsEquivalent`,
-      `workflowSubtitle` → `src/data/catalog.ts` and
-      `src/lib/workflow.ts`
+- [x] Port `BUILTIN_WORKFLOWS`, `WF_KINDS`, `workflowsEquivalent`,
+      `workflowSubtitle` → `src/lib/workflow.ts` (kept in `lib/`
+      since they're pure helpers; catalog.ts stays data-only)
 - [ ] Port `FormulaComposer` from
       [prototype/wf-suggest.jsx](prototype/wf-suggest.jsx) →
       `src/components/FormulaComposer.tsx`:
   - [ ] Progressive type→year→who chip slots
   - [ ] Selectors `$A/$B/$C` with late binding
   - [ ] Suggestion list, keyboard navigation (↑↓↵)
-- [ ] Port the formula evaluator from
+- [x] Port the formula evaluator from
       [prototype/wf-map.jsx:178](prototype/wf-map.jsx#L178) →
       `src/lib/formula.ts`:
-  - [ ] Shunting-yard + RPN, same logic
-  - [ ] Replace `regionData()` with `ElectionDataSource.getRegionResult()`
-  - [ ] Three framings: `absolute`, `share`, `vsSelected`
-  - [ ] `formulaRange` across visible regions
+  - [x] Shunting-yard + RPN, same logic
+  - [x] Replace `regionData()` with caller-supplied `ResultLookup`
+        closure (decoupled from `ElectionDataSource` so tests stay
+        pure; production wraps a pre-loaded Map)
+  - [x] Three framings: `absolute`, `share`, `vsSelected`
+  - [x] `formulaRange` across visible regions
 - [ ] localStorage persistence: `vk_workflows_v1` (preserve key for
       forward compat)
 - [ ] URL hash share: `#v=<base64-json>` (preserve codec for link
       compatibility); port from
       [prototype/app.jsx:7](prototype/app.jsx#L7)
-- [ ] Vitest tests:
-  - [ ] `formula.test.ts`: precedence, parens, division-by-zero,
-        unbound selector → error, missing data → error
-  - [ ] `workflow.test.ts`: `workflowsEquivalent`, builtin matching
-  - [ ] `share-state.test.ts`: every state shape round-trips
-        (mode/election/refElection/focusParty/formula/bindings)
+- [x] Vitest tests:
+  - [x] `formula.test.ts`: precedence, parens, division-by-zero,
+        unbound selector → error, missing data → error (40 tests)
+  - [x] `workflow.test.ts`: `workflowsEquivalent`, builtin matching,
+        localStorage round-trip with cleanup-on-read (22 tests)
+  - [x] `share-state.test.ts`: every state shape round-trips
+        (already in Phase 1; 11 tests)
 
 **Acceptance test:**
 - All four built-in workflows (winner, support%, votes, change) render

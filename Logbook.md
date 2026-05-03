@@ -863,3 +863,99 @@ warmer pinks anyway.
 **Commit hash**
 
 - Pending this session
+
+---
+
+## ENTRY Phase 3 (1/4) — formula evaluator + workflow logic 2026-05-03
+
+**What was done**
+
+- `src/lib/formula.ts` — port of `prototype/wf-map.jsx:178`. Same
+  shunting-yard + RPN logic, same precedence rules, same
+  division-by-zero handling. The prototype's synthetic `regionData`
+  closure is replaced with a caller-supplied `ResultLookup`
+  function so the evaluator stays pure and easy to test. Helpers
+  exported:
+  * `chipElectionId(fields)` — `(type, year, round) → "ek2023"`
+    or `"pres2024r1"`
+  * `chipValue(fields, regionId, lookup)` — share / turnout
+    extraction for one chip
+  * `evalFormula(tokens, regionId, lookup)` — main entry
+  * `applyFraming(entries, framing, ref?)` — absolute / share /
+    vsSelected
+  * `evalAcrossRegions` + `formulaRange` — bulk over a region set
+  * `formulaTokenLabel` + `formulaSummary` — display helpers
+- `src/lib/workflow.ts` — extracted from
+  `prototype/wf-workflows.jsx`:
+  * `WF_KINDS` / `WF_KIND_BY_ID` — the five coloring modes
+  * `BUILTIN_WORKFLOWS` — four immutable presets defaulting to
+    ek2023 (the most recent ek with PxWeb data; the prototype
+    defaulted to ek2027 since it had synthetic data)
+  * `workflowsEquivalent(a, b)` — used by the WorkflowBar to
+    highlight the active pill
+  * `workflowSubtitle(w)` — short tooltip line
+  * `loadCustomWorkflows` / `saveCustomWorkflows` — localStorage
+    I/O under the prototype's `vk_workflows_v1` key (preserved so
+    existing user state survives the migration). Cleanup-on-read
+    strips accidental double-`ƒ ` prefix from prototype-era labels.
+- Tests:
+  * `formula.test.ts` — 40 tests across `chipElectionId`,
+    `chipValue`, `evalFormula` happy paths (single chip, change
+    formula, precedence, parens, /0 → 0), `evalFormula` error
+    paths (empty, two-values, leading/trailing op, mismatched
+    parens, empty parens, unbound selector, no data, candidate),
+    `applyFraming` (all three modes + ref-zero edge case),
+    `evalAcrossRegions` + `formulaRange` (with framing),
+    `formulaTokenLabel` + `formulaSummary`
+  * `workflow.test.ts` — 22 tests covering kind metadata, built-in
+    invariants, every branch of `workflowsEquivalent` and
+    `workflowSubtitle`, localStorage round-trip, malformed input
+    handling, double-ƒ cleanup
+
+**Decisions**
+
+- **`ResultLookup` closure instead of an `ElectionDataSource`
+  reference.** The evaluator only needs synchronous access to
+  pre-loaded results. Wrapping in a closure keeps it pure — tests
+  can mock with a literal Map; production code wraps a pre-loaded
+  `Map<key, RegionResult>`. The async loading (which is
+  `LocalFixtureSource`'s job) happens at the dashboard level.
+- **`workflow.ts` lives in `lib/`, not `data/catalog.ts`.** The
+  helpers are pure functions of the workflow shape; the catalog
+  stays data-only (ELECTIONS, PARTIES, ELECTION_TYPES).
+- **Built-ins default to ek2023 / ek2019** instead of the
+  prototype's ek2027. ek2027 hasn't happened; defaulting there
+  would render empty maps until the user manually picks an
+  election.
+- **Candidate metric returns null** with a clear error
+  (`"candidate metric not yet supported"`). The composer UI will
+  hide this option in Phase 3 (4/4) until fixtures support it.
+
+**Files changed**
+
+- New: `src/lib/formula.ts`, `src/lib/formula.test.ts`,
+  `src/lib/workflow.ts`, `src/lib/workflow.test.ts`
+- Modified: `Implementation_plan.md` (Phase 3 pure-logic items
+  marked `[x]`), `Logbook.md` (this entry)
+
+**Build status**
+
+- `npm run typecheck` — clean (both configs)
+- `npm run build` — clean, 2.21s (bundle unchanged: nothing
+  imports formula/workflow yet — pulled in by the dashboard in 2/4)
+- `npm test` — **120 / 120 passed** (was 58 → +62: formula 40,
+  workflow 22)
+
+**Test count**
+
+- 120 / 120 (was 58)
+
+**Commit hash**
+
+- Pending this session
+
+**Notes**
+
+- Next: Phase 3 (2/4) — Dashboard shell with Crumb,
+  ElectionPicker, WorkflowBar; built-in workflows wired against
+  real data; URL hash sync via the existing `share-state.ts` codec.
