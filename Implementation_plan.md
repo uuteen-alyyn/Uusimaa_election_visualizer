@@ -248,20 +248,23 @@ vaalipiiri.
 **Goal:** every interactive feature from the prototype is reproduced
 against real data.
 
-- [ ] Port `V2_Focused` from
+- [/] Port `V2_Focused` from
       [prototype/wf-variants.jsx](prototype/wf-variants.jsx) →
-      `src/components/Dashboard.tsx`:
-  - [ ] Top bar: `Crumb`, share-link pill, `DownloadMenu`
-  - [ ] Workflow bar (row 2)
-  - [ ] Per-mode parameter row (row 3): `ElectionPicker`,
-        party-to-color picker, change comparison mode (pp / votes),
-        formula framing tabs (absolute / share / vsSelected)
+      `src/App.tsx` *(in progress — shell + built-ins + URL hash
+      done in 3 (2/4); ledger + share/download in 3 (3/4); custom
+      composer in 3 (4/4))*:
+  - [x] Top bar: `Crumb` (share-link pill + `DownloadMenu` in 3 (3/4))
+  - [x] Workflow bar (built-ins; custom row in 3 (4/4))
+  - [/] Per-mode parameter row (row 3): `ElectionPicker`,
+        party-to-color picker — done; change comparison mode
+        (pp / votes), formula framing tabs in 3 (3/4) / (4/4)
   - [ ] Map area with pan/zoom, ↑/↓/Tab navigation, sub-region
-        popover, focus-party picker, dynamic legend
+        popover, focus-party picker, dynamic legend *(Phase 4)*
   - [ ] Ledger: big-number TOTAL VOTES, formula value (when active),
-        party-share bars, top candidates list (scrollable)
-- [ ] Port `WorkflowBar` + `WorkflowBuilder` from
+        party-share bars, top candidates list (scrollable) *(3/4)*
+- [/] Port `WorkflowBar` + `WorkflowBuilder` from
       [prototype/wf-workflows.jsx](prototype/wf-workflows.jsx)
+      *(WorkflowBar — built-ins shipped; WorkflowBuilder in 3 (4/4))*
 - [x] Port `BUILTIN_WORKFLOWS`, `WF_KINDS`, `workflowsEquivalent`,
       `workflowSubtitle` → `src/lib/workflow.ts` (kept in `lib/`
       since they're pure helpers; catalog.ts stays data-only)
@@ -281,10 +284,10 @@ against real data.
   - [x] Three framings: `absolute`, `share`, `vsSelected`
   - [x] `formulaRange` across visible regions
 - [ ] localStorage persistence: `vk_workflows_v1` (preserve key for
-      forward compat)
-- [ ] URL hash share: `#v=<base64-json>` (preserve codec for link
-      compatibility); port from
-      [prototype/app.jsx:7](prototype/app.jsx#L7)
+      forward compat) *(Phase 3 (4/4) — when custom workflows ship)*
+- [x] URL hash share: `#v=<base64-json>` — codec ready since Phase 1;
+      App now writes mode/election/refElection/focusParty to the
+      hash on every change and reads from it on initial mount
 - [x] Vitest tests:
   - [x] `formula.test.ts`: precedence, parens, division-by-zero,
         unbound selector → error, missing data → error (40 tests)

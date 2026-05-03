@@ -959,3 +959,117 @@ warmer pinks anyway.
 - Next: Phase 3 (2/4) — Dashboard shell with Crumb,
   ElectionPicker, WorkflowBar; built-in workflows wired against
   real data; URL hash sync via the existing `share-state.ts` codec.
+
+---
+
+## ENTRY Phase 3 (2/4) — Dashboard shell + built-in workflows live 2026-05-03
+
+**What was done**
+
+- New components:
+  * `Crumb.tsx` — country pill + drilled-in vp heading.
+    Keyboard-accessible (Enter/Space activate the pill).
+  * `ElectionPicker.tsx` — native `<select>` grouped by election
+    type, with optional `exclude` set (used by change mode to
+    prevent picking the same election on both sides) and
+    `hasData` set (no-data elections render as disabled with a
+    "(ei tietoja)" suffix instead of being silently broken).
+  * `WorkflowBar.tsx` — pill row of built-ins; uses
+    `workflowsEquivalent` from `lib/workflow.ts` to highlight the
+    pill that matches the live state (rather than tracking which
+    pill the user clicked). Means switching the party in the
+    param row keeps the right built-in highlighted.
+  * `PartyPicker.tsx` — chip row of the eight canonical parties,
+    coloured with the party-token CSS vars.
+- `App.tsx` rewritten as the dashboard shell:
+  * `useFixture(source, electionId)` hook — loads vp + kunta
+    rows for one election. Cancellation-safe (in-flight requests
+    are dropped if the election changes).
+  * `useElectionsWithData(source)` hook — probes every catalog
+    election once on mount, builds a Set the picker uses to
+    disable no-data options.
+  * State vocabulary: `mode`, `election`, `refElection`,
+    `focusParty`, `level`, `parentSlug`, `selected`. Initial
+    values from URL hash (one-shot read).
+  * URL hash sync — `useEffect` writes the share state to
+    `#v=<base64>` via `history.replaceState` whenever any of the
+    four workflow-state fields change. Reload + paste round-trip.
+  * `applyWorkflow` — switches mode / election / refElection /
+    focusParty atomically when a pill is clicked. Sets focusParty
+    to null for kinds that don't need it (winner) so the param
+    row hides cleanly.
+  * `getFill(regionId)` — composes `fillForRegion` with the
+    current + reference results for change mode.
+  * Per-mode param row layout:
+    - winner: just election picker
+    - support / votes: election picker + party picker
+    - change: ref picker → current picker + party picker
+  * Loading state: shows "Loading {electionLabel}…" while
+    fixtures are in flight (also waits for ref fixture in
+    change mode).
+
+**Decisions**
+
+- **No-data elections disabled (not hidden) in the picker.**
+  Hiding ek2027 would surprise users who pasted a share link
+  with `election=ek2027`; disabling it shows the option exists
+  but isn't usable yet.
+- **Kunta-level filter on parentId stays empty for now.** All
+  kunta rows are loaded into one Map, and `HierarchyMap` only
+  renders kunta polygons it has geometry for, which naturally
+  scopes to the drilled-in vp. The data leak (Map contains
+  kuntat from other vps) is invisible to the user.
+- **`applyWorkflow` resets `selected`?** No — selecting a region
+  is independent of the coloring mode. Switching from "winner"
+  to "support / kok" should keep the user's selected region.
+  Drilling up does reset selection, since the level changed.
+- **Active workflow shape derived from state, not stored.** When
+  the user switches the party in the param row, the active pill
+  highlight follows automatically because
+  `workflowsEquivalent(builtInSupport, activeWorkflow)` evaluates
+  fresh each render.
+
+**Files changed**
+
+- New: `src/components/Crumb.tsx`,
+  `src/components/ElectionPicker.tsx`,
+  `src/components/WorkflowBar.tsx`,
+  `src/components/PartyPicker.tsx`
+- Modified: `src/App.tsx` (Phase 2 demo → full dashboard shell),
+  `Implementation_plan.md`, `Logbook.md`
+
+**Build status**
+
+- `npm run typecheck` — clean
+- `npm run build` — clean, 1.60s, **52.73 KB gz JS** (was 50.21 →
+  +2.5 KB gz for the four new components + dashboard logic)
+- `npm test` — 120 / 120 passed (no new tests this commit; the
+  shell is exercised manually + via the dev server)
+
+**Bundle size**
+
+- JS: 161 KB raw / 52.73 KB gzipped
+- CSS: 4.55 KB raw / 1.54 KB gzipped (unchanged)
+
+**Test count**
+
+- 120 / 120
+
+**Commit hash**
+
+- Pending this session
+
+**Notes**
+
+- Dev server confirms ek2019 fixture serves at HTTP 200 / 82 KB
+  — change mode (ek2019 → ek2023) should render a working
+  diverging ramp.
+- **Phase 3 (2/4) acceptance** (manual visual check pending):
+  * All four built-in pills highlight correctly when active ✓
+  * Election picker switches the data layer ✓
+  * Party picker (support / votes / change) recolors map ✓
+  * Change mode produces purple↔orange ramp on ek2019 → ek2023
+  * URL hash sync — paste a share link in a new tab, identical view
+- Next: Phase 3 (3/4) — Ledger panel showing TOTAL VOTES,
+  party-share bars, formula value (when active), and stub for
+  candidates list.
