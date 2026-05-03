@@ -663,6 +663,9 @@ export function App(): JSX.Element {
 
   return (
     <div className="page" ref={dashboardRef}>
+      <a href="#map-area" className="skip-link">
+        Siirry karttaan
+      </a>
       <header>
         <h1>Vaalit — tulosvisualisointi</h1>
         <div
@@ -686,7 +689,10 @@ export function App(): JSX.Element {
         </div>
       </header>
 
-      <section style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+      <section
+        aria-label="Tarkastelutyyli ja parametrit"
+        style={{ display: "flex", flexDirection: "column", gap: 8 }}
+      >
         <WorkflowBar
           builtins={BUILTIN_WORKFLOWS}
           customs={customWorkflows}
@@ -779,8 +785,12 @@ export function App(): JSX.Element {
         </div>
       </section>
 
-      <main className="dashboard">
-        <div className="dashboard-map" ref={mapAreaRef}>
+      <main className="dashboard" id="map-area">
+        <div
+          className="dashboard-map"
+          ref={mapAreaRef}
+          aria-label={`Vaalituloskartta — ${electionLabel}`}
+        >
           {dataLoading || !geometry ? (
             <p style={{ opacity: 0.6 }}>Loading {electionLabel}…</p>
           ) : (

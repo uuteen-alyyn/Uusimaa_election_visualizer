@@ -13,7 +13,7 @@
  * `RegionResult`, `formula`, or `refResult`.
  */
 
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 
 import {
   COUNTRY_VIEWBOX,
@@ -61,6 +61,7 @@ export function HierarchyMap({
   onZoomIn,
 }: HierarchyMapProps): JSX.Element {
   const [hoverId, setHoverId] = useState<string | null>(null);
+  const svgRef = useRef<SVGSVGElement | null>(null);
 
   const { regions, viewBox } = useMemo<{
     regions: ProjectedFeature[];
@@ -84,8 +85,59 @@ export function HierarchyMap({
 
   const labelSize = level === "kunta" ? 8.5 : 11;
 
+  /* Keyboard navigation: when the SVG has focus, Tab/→/↓ cycle to
+   *  the next sibling region, Shift+Tab/←/↑ cycle backwards, Enter
+   *  drills in. Steals Tab on purpose — the alternative (one tab
+   *  stop per region) would force ~310 tab presses to leave the map. */
+  const onKeyDown = (e: React.KeyboardEvent<SVGSVGElement>): void => {
+    const ids = regions.map((r) => r.id);
+    if (ids.length === 0) return;
+    const cur = selected != null ? ids.indexOf(selected) : -1;
+    let nextIndex: number | null = null;
+    if (e.key === "Tab" && !e.shiftKey) {
+      nextIndex = cur < 0 ? 0 : (cur + 1) % ids.length;
+    } else if (e.key === "Tab" && e.shiftKey) {
+      nextIndex = cur < 0 ? ids.length - 1 : (cur - 1 + ids.length) % ids.length;
+    } else if (e.key === "ArrowRight" || e.key === "ArrowDown") {
+      nextIndex = cur < 0 ? 0 : (cur + 1) % ids.length;
+    } else if (e.key === "ArrowLeft" || e.key === "ArrowUp") {
+      nextIndex = cur < 0 ? ids.length - 1 : (cur - 1 + ids.length) % ids.length;
+    } else if (e.key === "Enter" && selected) {
+      e.preventDefault();
+      onZoomIn?.(selected);
+      return;
+    } else if (e.key === "Escape") {
+      // Let the caller decide to drill up or just blur.
+      svgRef.current?.blur();
+      return;
+    }
+    if (nextIndex == null) return;
+    e.preventDefault();
+    const nextId = ids[nextIndex];
+    if (nextId) onPick?.(nextId);
+  };
+
+  const ariaLabel =
+    level === "vp"
+      ? "Suomen kartta, vaalipiirit. Käytä nuolinäppäimiä siirtyäksesi alueesta toiseen, Enter porautuaksesi sisään."
+      : "Vaalipiirin kunnat. Käytä nuolinäppäimiä siirtyäksesi alueesta toiseen.";
+
+  const focusedId = selected ?? hoverId;
+  const focusedRegion = focusedId ? regions.find((r) => r.id === focusedId) : null;
+
   return (
-    <svg viewBox={viewBox} width={width} height={height} style={{ display: "block" }}>
+    <svg
+      ref={svgRef}
+      viewBox={viewBox}
+      width={width}
+      height={height}
+      style={{ display: "block" }}
+      tabIndex={0}
+      role="application"
+      aria-label={ariaLabel}
+      aria-activedescendant={focusedRegion ? `map-region-${focusedRegion.id}` : undefined}
+      onKeyDown={onKeyDown}
+    >
       <g>
         {regions.map((r) => {
           const isSel = selected === r.id;
@@ -93,11 +145,15 @@ export function HierarchyMap({
           return (
             <path
               key={r.id}
+              id={`map-region-${r.id}`}
               d={r.d}
               fill={getFill(r.id)}
               stroke="var(--ink)"
               strokeWidth={isSel ? 1.8 : isHover ? 1.2 : 0.5}
               opacity={isSel ? 1 : isHover ? 0.98 : 0.94}
+              role="option"
+              aria-label={r.label}
+              aria-selected={isSel}
               style={{ cursor: "pointer", transition: "stroke-width 120ms" }}
               onClick={() => onPick?.(r.id)}
               onDoubleClick={() => onZoomIn?.(r.id)}

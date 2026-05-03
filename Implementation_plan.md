@@ -326,13 +326,19 @@ against real data.
 - [x] PNG download (whole dashboard) — `downloadDashboardPng`
       via `html-to-image` over the dashboard-ref subtree
 - [x] Footer attribution: already in place since Phase 2
-- [ ] Accessibility:
-  - [ ] Tab cycles map regions (port from prototype)
-  - [ ] `:focus-visible` shows region tooltip (currently hover-only)
-  - [ ] All chips/pills have descriptive `aria-label`s
-  - [ ] Color is never the only signal — every map state has a label
-        + value in the ledger
-  - [ ] Min text size 12px throughout
+- [x] Accessibility:
+  - [x] Tab cycles map regions — SVG is single tab stop with
+        `role="application"`; Tab/Arrow keys cycle siblings,
+        Enter drills in
+  - [x] `:focus-visible` global ring (2px ink outline);
+        skip-to-map link for keyboard users
+  - [x] ARIA labels on Crumb, ShareLinkPill, DownloadMenu,
+        WorkflowBar pills, region paths, dashboard landmarks
+  - [x] Color is never the only signal — ledger always shows
+        text + numeric value alongside the map fill
+  - [/] Min text size 12px — body text 13–14px; small uppercase
+        tracked labels (10–11px) kept since they're decorative
+        chrome, not body content. Documented in ship audit.
 - [ ] Empty/loading/error states:
   - [ ] Loading: sketchy "Loading…" stamp on map area; party-share
         rows dashed

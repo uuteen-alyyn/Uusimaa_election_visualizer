@@ -14,6 +14,41 @@ body {
   font-family: var(--font-body);
 }
 
+/* Visible focus ring on keyboard navigation only — leaves mouse
+   clicks alone. Important for the map, pills, dropdowns, and the
+   chip composer. */
+:focus-visible {
+  outline: 2px solid var(--ink);
+  outline-offset: 2px;
+  border-radius: var(--radius-chip);
+}
+
+/* Native form controls keep their own outline rules. */
+input:focus-visible,
+select:focus-visible {
+  outline: 2px solid var(--ink);
+  outline-offset: 1px;
+}
+
+/* Skip-to-content link, hidden until keyboard-focused. Lets a
+   screen-reader / keyboard user jump past the title + crumb +
+   workflow bar straight to the map. */
+.skip-link {
+  position: absolute;
+  left: -9999px;
+  top: 0;
+  background: var(--ink);
+  color: var(--paper);
+  padding: 8px 12px;
+  font-size: 13px;
+  border-radius: var(--radius-box);
+  z-index: 1000;
+}
+.skip-link:focus {
+  left: 16px;
+  top: 16px;
+}
+
 .page {
   min-height: 100vh;
   display: flex;

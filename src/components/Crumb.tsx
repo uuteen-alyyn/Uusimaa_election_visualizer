@@ -20,13 +20,15 @@ interface CrumbProps {
 export function Crumb({ home, current, onHome }: CrumbProps): JSX.Element {
   const homeIsActive = !current;
   return (
-    <div className="crumb">
+    <nav className="crumb" aria-label="Sijainti">
       <span
         className={"pill" + (homeIsActive ? " on" : "")}
         style={{ cursor: "pointer", boxShadow: "var(--shadow-soft)" }}
         onClick={onHome}
         role="button"
         tabIndex={0}
+        aria-label={current ? `Palaa ${home} -näkymään` : `${home} (nykyinen)`}
+        aria-current={homeIsActive ? "location" : undefined}
         onKeyDown={(e) => {
           if (e.key === "Enter" || e.key === " ") {
             e.preventDefault();
@@ -34,17 +36,25 @@ export function Crumb({ home, current, onHome }: CrumbProps): JSX.Element {
           }
         }}
       >
-        <span style={{ fontSize: 12, opacity: 0.8 }}>⌂</span>
+        <span style={{ fontSize: 12, opacity: 0.8 }} aria-hidden="true">
+          ⌂
+        </span>
         {home}
       </span>
       {current ? (
         <>
-          <span className="sep">›</span>
-          <span className="h" style={{ fontSize: 18, fontWeight: 700 }}>
+          <span className="sep" aria-hidden="true">
+            ›
+          </span>
+          <span
+            className="h"
+            style={{ fontSize: 18, fontWeight: 700 }}
+            aria-current="location"
+          >
             {current}
           </span>
         </>
       ) : null}
-    </div>
+    </nav>
   );
 }

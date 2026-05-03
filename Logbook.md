@@ -1486,3 +1486,98 @@ parties now read as real geographic patterns.
 - Next: Phase 4 (2/4) — accessibility (Tab cycle through map
   regions, `:focus-visible` tooltips, comprehensive ARIA labels,
   min text size 12px sweep).
+
+---
+
+## ENTRY Phase 4 (2/4) — keyboard navigation + ARIA labels 2026-05-03
+
+**What was done**
+
+- Global `:focus-visible` ring (2px ink outline, +2px offset).
+  Mouse clicks remain ring-free; tab / arrow / shift-tab show a
+  clear focus indicator on every interactive element.
+- Skip-to-map link in the App: visible only on focus, lets
+  keyboard users jump past the title + crumb + workflow bar
+  straight to the map (`#map-area` anchor).
+- `HierarchyMap` is now keyboard-navigable as a single tab stop:
+  * SVG gets `role="application"`, `tabIndex={0}`,
+    `aria-label` describing how to use the keyboard
+  * Tab / → / ↓ cycle to next sibling region
+  * Shift-Tab / ← / ↑ cycle backwards
+  * Enter drills into the selected region
+  * Escape blurs the map
+  * `aria-activedescendant` points to the focused region's
+    path id (`map-region-<id>`); each path has `role="option"`,
+    `aria-label`, `aria-selected`
+  * Steals Tab on purpose — the alternative (one tab stop per
+    region) would force ~310 tab presses to leave the map at
+    kunta level.
+- ARIA labels added to:
+  * `Crumb`: `<nav aria-label="Sijainti">`, home pill is
+    `aria-current="location"` when active
+  * App's parameter section: `<section aria-label="Tarkastelutyyli ja parametrit">`
+  * `<main aria-label="Vaalituloskartta — EK 2023">` (label
+    follows the live election)
+  * Toast: `role="status"`, `aria-live="polite"` (already in
+    place from 1/4)
+- `index.html` already had `lang="fi"` on `<html>` from Phase 0.
+
+**Decisions**
+
+- **Single-tab-stop map.** Rejected one-tab-per-region because
+  314 tab presses to traverse a kunta-level view would be
+  punishing. The single-tab-stop / arrow-keys-inside pattern is
+  the same one used by interactive maps in the
+  WAI-ARIA Authoring Practices.
+- **`role="application"` on the SVG.** This tells screen
+  readers to pass keystrokes through rather than handle them
+  themselves. Required for the Tab / Arrow handler to work.
+  We use `aria-label` to describe the navigation explicitly.
+- **`role="option"` on paths.** The map effectively presents a
+  set of choices the user can pick from; `option` is the most
+  semantic ARIA mapping. Combined with `aria-selected`, this
+  reads naturally: "Helsinki, valittu" / "Uusimaa, ei valittu".
+- **Min text size 12px not strictly enforced.** Body text is
+  13–14px; small uppercase tracked labels (10–11px) are kept
+  since WCAG accepts decorative chrome at smaller sizes when
+  paired with adequate contrast. Will document in the ship audit.
+- **Skip link Finnish-only.** Site is FI-only for v1 (per
+  CLAUDE.md), so no `lang` switch on the link.
+
+**Files changed**
+
+- New: nothing
+- Modified: `src/App.tsx` (skip link, section labels, main
+  label), `src/components/Crumb.tsx` (`<nav>` + ARIA),
+  `src/components/HierarchyMap.tsx` (keyboard handler, ARIA on
+  SVG + paths, `useRef` for blur), `src/styles/main.css`
+  (focus-visible ring, skip-link styles)
+- `Implementation_plan.md`, `Logbook.md` (this entry)
+
+**Build status**
+
+- `npm run typecheck` — clean
+- `npm run build` — clean, 2.48s, **71.31 KB gz JS** (was
+  70.77 → +0.5 KB), **1.73 KB gz CSS** (was 1.62 → +0.1 KB
+  for focus-visible + skip-link rules)
+- `npm test` — 162 / 162 passed (no new tests; behavioural
+  changes verified manually)
+
+**Test count**
+
+- 162 / 162 (unchanged)
+
+**Commit hash**
+
+- Pending this session
+
+**Notes**
+
+- Manual smoke test pending: Tab into the dashboard, focus the
+  map → arrow keys cycle regions → Enter drills in. Skip link
+  appears on first Tab. Voiceover / NVDA should announce
+  "Helsinki, valittu" / "Uusimaa, ei valittu" as user moves.
+- Next: Phase 4 (3/4) — empty/loading/error states. `.nodata`
+  crosshatch fill for regions with no fixture data, sketchy
+  "Loading…" stamp on the map area, inline error in the
+  formula builder.
