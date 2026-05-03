@@ -14,9 +14,10 @@
  * Phase 4 adds the candidates list.
  */
 
-import { PARTIES } from "../data/catalog";
+import { PARTIES, PARTY_BY_ID } from "../data/catalog";
 import {
   KNOWN_PARTY_IDS,
+  type Candidate,
   type FormulaFraming,
   type RegionResult,
 } from "../types/elections";
@@ -79,6 +80,7 @@ export function Ledger({
         />
       ) : null}
       <PartyShares result={result} loading={loading} />
+      <CandidatesList result={result} loading={loading} />
     </aside>
   );
 }
@@ -354,6 +356,116 @@ function PartyShareBars({ result }: { result: RegionResult }): JSX.Element {
           subdued
         />
       ) : null}
+    </div>
+  );
+}
+
+/* ─── Candidates list ───────────────────────────────────────── */
+
+function CandidatesList({
+  result,
+  loading,
+}: {
+  result: RegionResult | null;
+  loading: boolean;
+}): JSX.Element | null {
+  if (loading) return null;
+  const cands = result?.candidates ?? [];
+  if (cands.length === 0) return null;
+
+  return (
+    <div
+      style={{
+        padding: "12px 18px",
+        borderTop: "var(--border-default) dashed var(--hair)",
+      }}
+    >
+      <div
+        style={{
+          fontSize: 11,
+          opacity: 0.6,
+          textTransform: "uppercase",
+          letterSpacing: 0.5,
+          marginBottom: 8,
+        }}
+      >
+        Eniten ääniä saaneet ehdokkaat
+      </div>
+      <div
+        role="list"
+        style={{
+          display: "flex",
+          flexDirection: "column",
+          gap: 2,
+          maxHeight: 280,
+          overflowY: "auto",
+          paddingRight: 4,
+        }}
+      >
+        {cands.map((c, i) => (
+          <CandidateRow key={c.id} rank={i + 1} candidate={c} />
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function CandidateRow({
+  rank,
+  candidate,
+}: {
+  rank: number;
+  candidate: Candidate;
+}): JSX.Element {
+  const known = PARTY_BY_ID[candidate.party];
+  const partyLabel = known?.abbr ?? candidate.party.replace(/^_/, "").toUpperCase();
+  const swatchColor = known ? `var(--p-${known.id})` : "var(--ink-mute)";
+  return (
+    <div
+      role="listitem"
+      style={{
+        display: "grid",
+        gridTemplateColumns: "26px 1fr auto",
+        gap: 8,
+        alignItems: "center",
+        fontSize: 12,
+        padding: "2px 0",
+      }}
+    >
+      <span
+        className="mono"
+        style={{ fontSize: 10, opacity: 0.55, textAlign: "right" }}
+      >
+        {rank}.
+      </span>
+      <span
+        style={{
+          display: "flex",
+          alignItems: "center",
+          gap: 6,
+          minWidth: 0,
+        }}
+      >
+        <span
+          className="swatch"
+          style={{ background: swatchColor, flexShrink: 0 }}
+          aria-hidden="true"
+        />
+        <span
+          style={{
+            overflow: "hidden",
+            textOverflow: "ellipsis",
+            whiteSpace: "nowrap",
+          }}
+          title={`${candidate.name} (${partyLabel})`}
+        >
+          {candidate.name}{" "}
+          <span style={{ opacity: 0.55, fontSize: 11 }}>· {partyLabel}</span>
+        </span>
+      </span>
+      <span className="mono" style={{ fontSize: 11, textAlign: "right" }}>
+        {NUM_FI.format(candidate.votes)}
+      </span>
     </div>
   );
 }

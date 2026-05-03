@@ -50,12 +50,22 @@ Format: priority emoji + short title + status note + date added.
   `turnout_by_aanestysalue` table per election (or use the
   voter-background table). UI should show "—" when turnout is 0
   rather than rendering as 0%. *(added 2026-05-03)*
-- **Top-N candidates per area not yet in fixtures** — the prototype
-  ledger has a scrollable candidate list per region. Phase 3 needs
-  candidate data; will require `loadCandidateResults` per geographic
-  unit (vaalipiiri / hyvinvointialue / national for EU/pres) and
-  aggregating to top N per region. Adds significant fixture size —
-  budget ~2-5 MB across all elections. *(added 2026-05-03)*
+- **Top-N candidates per area — partially done; gaps in EU + pres** —
+  parliamentary 2023/2019, municipal 2025/2021, and regional 2025
+  now ship a top-N candidate list per vp + kunta (40 + 20). EU and
+  presidential elections still surface no candidates because their
+  PxWeb tables are vp-only or national-only — different query +
+  aggregation path needed. Add EU 2024 vp-level via 14gx (single
+  table) and presidential vp-level via 14db (already loaded for
+  shares — extend to keep candidate names). *(updated 2026-05-04)*
+- **Some candidate fetches 429/403 once warmed up** — PxWeb's public
+  rate limit is more aggressive than the submodule's 10 req/10 s
+  client-side throttle. The prefetch retries on 429 (3/8/20/45 s
+  backoff) and gives up after the 4th attempt. Consequence: a clean
+  run after a long-warm cache occasionally drops 1–3 vp's worth of
+  candidates per election. Re-running fills in the misses (cached).
+  Long-term: route all calls through `withCache` so a single cold
+  warm-up is enough. *(added 2026-05-04)*
 
 ---
 

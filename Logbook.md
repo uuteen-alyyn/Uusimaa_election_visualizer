@@ -2004,3 +2004,138 @@ User-reported issues, all fixed in one commit:
   votes — current election sticks. Pick Oulun vaalipiiri in
   votes mode → kuntat range from cream (Merijärvi) to ochre
   (Oulu). Picker no longer shows presidential elections.
+
+---
+
+## ENTRY feat: top-N candidates in Ledger (parliamentary, municipal, regional) 2026-05-04
+
+**What was done**
+
+User report: "the app was also supposed to load the top
+candidates in each district / municipality into a scrollable
+window, why are they not visible?"
+
+Closed the gap end-to-end:
+
+1. **Build-time fetch**: `scripts/build-fixtures.ts` gained
+   `loadCandidatesForUnit(unitKey, electionType, year)` —
+   bypasses the submodule's `loadCandidateResults` (which
+   asks for every aa-level area in one query and trips the
+   ~12 000-cell PxWeb limit on Helsinki/Uusimaa) and queries
+   the per-vp candidate tables directly, filtered to:
+   - VP## / HV## / KU### / 3-digit kunta codes only (no aa)
+   - `Tiedot=votes` only (no share column)
+   - `Valintatieto=SSS` aggregate when present (1 row per
+     candidate instead of 3 across elected/varalla/not_elected)
+
+2. **Aggregation**: `attachCandidates(areas, rows)` groups by
+   canonical region id, sums per-candidate votes (defensive —
+   covers cases where a candidate appears in multiple
+   Valintatieto rows), sorts descending, and takes top 40 for
+   vp/hv aggregates and top 20 for kunta. Mutates the matching
+   `RegionResult` entries in place.
+
+3. **Country-level merge**: `src/lib/aggregate.ts`'s
+   `aggregateRegions` now also merges candidate lists across
+   the source vp rows by candidate id (parliamentary +
+   municipal candidates carry stable ids across vp/kunta in
+   PxWeb), so the no-region-selected "Koko Suomi" view shows
+   genuine country-wide top candidates rather than nothing.
+
+4. **Ledger UI**: new `CandidatesList` + `CandidateRow`
+   sub-components in `src/components/Ledger.tsx`. Rendered
+   inside a `max-height: 280px; overflow-y: auto` flex
+   column, each row is a 26 / 1fr / auto grid (rank · party
+   swatch + name + abbr · votes). Renders nothing when the
+   region has no candidates (so EU and presidential — which
+   don't ship candidate data yet — stay visually clean).
+
+5. **429 resilience**: a single warm-up run hits PxWeb's
+   public throttle hard; the submodule's 10 req / 10 s
+   client-side limiter is too generous. Added `withRetry()`
+   in `build-fixtures.ts` (3 / 8 / 20 / 45 s exponential
+   backoff, 4 retries, 429-only — other errors propagate)
+   and routed both candidate calls and the year-filtered
+   party fallback + presidential fetch through it. Also wrapped
+   candidate query bodies in `withCache` so the misses on
+   subsequent runs are filled from disk.
+
+**Coverage**
+
+- ek2023: 322 regions with candidates
+- ek2019: 324 regions with candidates
+- kunta2025: 252 regions
+- kunta2021: 190 regions
+- alue2025: 312 regions
+- alue2022, eu2024, eu2019, pres*: 0 (no per-vp candidate
+  tables in the right shape — flagged in BACKLOG for a
+  follow-up)
+
+**Decisions**
+
+- **Top 40 per vp / 20 per kunta.** With ~13 candidate-bearing
+  fixtures and ~310 kunnat each, this lands the candidate
+  payload at ~1.5 MB across all elections — well under the
+  10 MB budget.
+- **Bypass the submodule's loadCandidateResults.** Helsinki
+  and Uusimaa are too large for one all-areas query. The
+  in-build script does a metadata-driven filter to non-aa
+  area codes and votes-only Tiedot — typical query is
+  ~30 areas × ~250 candidates × 1 measure ≈ 7 500 cells.
+- **Use the SSS Valintatieto aggregate when available.**
+  The submodule's loader fetches outcome codes 1/2/3
+  separately so it can preserve `election_outcome`. We don't
+  need that — the Ledger only shows totals — and dropping it
+  cuts cell count 3×.
+- **Country-level candidate merge by id.** Parliamentary +
+  municipal candidate ids are stable across vp/kunta within
+  one election. Merging by id and re-summing gives the
+  correct national totals without an extra fetch. The cap
+  is also 40 at country level.
+- **Render nothing when there are no candidates.** Empty list
+  is visually noisy; absent block is cleaner. Once EU /
+  presidential get their own candidate path, the same
+  component will surface those automatically.
+
+**Files changed**
+
+- Modified: `scripts/build-fixtures.ts` (+ ~270 lines —
+  candidate loader, aggregation, retry helper, withCache),
+  `src/lib/aggregate.ts` (candidate merge in
+  `aggregateRegions`), `src/components/Ledger.tsx`
+  (`CandidatesList` + `CandidateRow`), `BACKLOG.md` (status
+  update on the candidates item; new 429-handling note)
+- Logbook entry (this)
+- Re-ran `npm run prefetch` → `public/data/elections/*.json`
+  regenerated (gitignored — reproduced from CI / build)
+
+**Build status**
+
+- `npm run typecheck` — clean
+- `npm run build` — clean, 1.67 s, 76.06 KB gz JS
+- `npm test` — 162 / 162 passed
+- `npm run prefetch` — 13 / 14 with data, 5 054 KB total
+  (under 10 MB budget)
+
+**Test count**
+
+- 162 / 162 (no test changes — candidate handling is
+  shape-preserving on existing fixtures, and the new path
+  goes through the same `RegionResult` schema. A future
+  `aggregate.test.ts` extension for candidate merging is
+  flagged for hardening.)
+
+**Commit hash**
+
+- Pending this commit
+
+**Notes**
+
+- One known gap: a few vp's worth of candidates may drop on
+  any given prefetch when PxWeb rate-limits past the 4-retry
+  budget. Re-running fills them from cache. Logged in BACKLOG.
+- No UI change for elections without candidates (eu / pres) —
+  the Ledger renders the same shares + formula blocks as
+  before. Drilling into an aa shows the kunta's candidates
+  (RegionResult for an aa doesn't carry a separate list —
+  consistent with the placeholder grid representing the kunta).

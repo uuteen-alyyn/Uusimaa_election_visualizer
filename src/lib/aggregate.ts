@@ -51,7 +51,24 @@ export function aggregateRegions(
 
   const turnout = totalVoters > 0 ? (totalVotes / totalVoters) * 100 : 0;
 
-  return {
+  // Merge candidate lists across the source rows. Candidates are
+  // unique by id (assuming the same id space across vp/kunta — which
+  // is true for parliamentary/municipal: the kuntakoodi varies, the
+  // candidate id stays). Sum votes, then take top 40.
+  const candAgg = new Map<string, { id: string; name: string; party: PartyId; votes: number }>();
+  for (const r of rows) {
+    if (!r.candidates) continue;
+    for (const c of r.candidates) {
+      const existing = candAgg.get(c.id);
+      if (existing) existing.votes += c.votes;
+      else candAgg.set(c.id, { ...c });
+    }
+  }
+  const candidates = Array.from(candAgg.values())
+    .sort((a, b) => b.votes - a.votes)
+    .slice(0, 40);
+
+  const result: RegionResult = {
     regionId: options.regionId,
     electionId: options.electionId,
     votes: totalVotes,
@@ -59,4 +76,6 @@ export function aggregateRegions(
     turnout,
     shares,
   };
+  if (candidates.length > 0) result.candidates = candidates;
+  return result;
 }
