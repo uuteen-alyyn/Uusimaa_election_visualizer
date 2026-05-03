@@ -34,6 +34,7 @@ import type { ElectionTypeId, RegionResult } from "../src/types/elections";
 import type { FixtureFile } from "../src/data/elections-source";
 
 import { loadPartyResults } from "../submodules/elections/src/data/loaders";
+import { pxwebClient } from "../submodules/elections/src/api/pxweb-client";
 import type {
   ElectionRecord,
   ElectionType,
@@ -191,11 +192,10 @@ async function buildFixture(
 ): Promise<FixtureFile> {
   const electionType = TYPE_MAP[typeId];
 
-  // Presidential elections need candidate-table aggregation, not
-  // party-table: skip for Phase 1 first cut. Tracked in BACKLOG.
   if (electionType === "presidential") {
-    console.warn(`[prefetch]   ${electionId}: presidential — deferred to Phase 1.x → status:no_data`);
-    return { electionId, status: "no_data" };
+    // Round is encoded in the electionId suffix ("pres2024r1" → 1).
+    const round = electionId.endsWith("r2") ? 2 : 1;
+    return buildPresidentialFixture(electionId, year, round);
   }
 
   try {
@@ -212,6 +212,170 @@ async function buildFixture(
     return { electionId, status: "no_data" };
   }
 }
+
+/** Hardcoded candidate-id → party-slug mapping for table 14db.
+ *
+ *  Why hardcoded: PxWeb's 14db gives candidate_id × area × votes
+ *  but no party affiliation. Affiliations are stable across the
+ *  candidate's career, so a static lookup is correct + small.
+ *
+ *  Independents and minor-party candidates fall through to a
+ *  derived `_<lastname>` slug so they're preserved as distinct
+ *  entries in `shares` (consistent with the parliamentary path). */
+const PRESIDENTIAL_CANDIDATE_PARTY: Record<string, string> = {
+  // Pre-2018 candidates we keep around for completeness even though
+  // their vp-boundary mapping is rough (see year filter below).
+  "01": "sdp",   // Martti Ahtisaari
+  "02": "rkp",   // Elisabeth Rehn
+  "03": "kesk",  // Paavo Väyrynen
+  "06": "vas",   // Claes Andersson
+  "12": "sdp",   // Tarja Halonen
+  "13": "kesk",  // Esko Aho
+  "18": "kok",   // Sauli Niinistö
+  "19": "kesk",  // Matti Vanhanen
+  "20": "ps",    // Timo Soini
+  "21": "kd",    // Bjarne Kallis
+  "22": "rkp",   // Henrik Lax
+  "24": "vihr",  // Pekka Haavisto
+  "25": "sdp",   // Paavo Lipponen
+  "26": "vas",   // Paavo Arhinmäki
+  "27": "rkp",   // Eva Biaudet
+  "28": "kd",    // Sari Essayah
+  "29": "ps",    // Laura Huhtasaari
+  "30": "sdp",   // Tuula Haatainen
+  "31": "vas",   // Merja Kyllönen
+  "32": "rkp",   // Nils Torvalds
+  "33": "kok",   // Alexander Stubb
+  "34": "ps",    // Jussi Halla-aho
+  "35": "kesk",  // Olli Rehn (independent in 2024, but Keskusta-supported and former Kesk MEP — bucket as kesk for the map)
+  "36": "vas",   // Li Andersson
+  "37": "sdp",   // Jutta Urpilainen
+  "38": "_aalt", // Mika Aaltola — independent
+  "39": "_liike",// Harry Harkimo — Liike Nyt
+};
+
+/** Convert PxWeb 6-digit vp code (used by pres table 14db) to our
+ *  canonical 2-digit form. `010000` → `"01"`. Old pre-2013 vp
+ *  codes (`810000`, `910000`, …) are returned as null so they're
+ *  skipped — they don't map onto our 2026 geometry. */
+function presVpCodeToCanonical(code: string): string | null {
+  if (!/^\d{6}$/.test(code)) return null;
+  const prefix = code.slice(0, 2);
+  // Only the modern 13-vp set (01-13) maps cleanly onto our geometry.
+  if (parseInt(prefix, 10) > 13) return null;
+  return prefix;
+}
+
+/** Build a presidential-election fixture from table 14db
+ *  (candidate × vaalipiiri × year × round).
+ *
+ *  Direct PxWeb query — bypasses the submodule's
+ *  `loadPresidentialByVaalipiiri` because that helper uses the
+ *  wrong variable name (`Ehdokas` vs the actual `Ehdokkaat`).
+ *  Tracked in BACKLOG: upstream patch needed.
+ *
+ *  Coverage: vaalipiiri-level only (the table doesn't break down
+ *  by kunta). Drilling into a vp shows crosshatch on every kunta.
+ *  Pre-2013 elections use the older 15-vp boundary set (Pohjois-
+ *  Savo, Etelä-Savo, etc. as separate vps), which doesn't map
+ *  onto our 2026 geometry — those years return no_data and are
+ *  hidden from the picker. */
+async function buildPresidentialFixture(
+  electionId: string,
+  year: number,
+  round: 1 | 2,
+): Promise<FixtureFile> {
+  if (year < 2018) {
+    console.warn(
+      `[prefetch]   ${electionId}: pre-2013 vp boundaries don't match 2026 geometry → status:no_data`,
+    );
+    return { electionId, status: "no_data" };
+  }
+
+  try {
+    const resp = await pxwebClient.queryTable(
+      "StatFin",
+      "statfin_pvaa_pxt_14db",
+      {
+        query: [
+          { code: "Vuosi", selection: { filter: "item", values: [String(year)] } },
+          { code: "Ehdokkaat", selection: { filter: "all", values: ["*"] } },
+          { code: "Vaalipiiri", selection: { filter: "all", values: ["*"] } },
+          { code: "Kierros", selection: { filter: "item", values: [String(round)] } },
+          { code: "Tiedot", selection: { filter: "item", values: ["pvaa_aanet"] } },
+        ],
+        response: { format: "json" as const },
+      },
+      "pvaa",
+    );
+
+    // Parse: each row's `key` is [Vuosi, Ehdokkaat, Vaalipiiri, Kierros].
+    // Group by vaalipiiri, sum candidate votes by party slug.
+    interface Row {
+      candidateId: string;
+      vpCode: string;
+      votes: number;
+    }
+    const rows: Row[] = [];
+    for (const r of resp.data) {
+      const candidateId = String(r.key[1] ?? "");
+      const vpCode = String(r.key[2] ?? "");
+      const v = Number(r.values[0]);
+      if (!Number.isFinite(v) || v <= 0) continue;
+      // Skip the "Hyväksytyt äänet" / "Hylätyt äänet" aggregate rows.
+      if (candidateId === "98" || candidateId === "99") continue;
+      rows.push({ candidateId, vpCode, votes: v });
+    }
+
+    // Aggregate per vp.
+    const byVp = new Map<string, Row[]>();
+    for (const row of rows) {
+      const canon = presVpCodeToCanonical(row.vpCode);
+      if (!canon) continue;
+      const arr = byVp.get(canon);
+      if (arr) arr.push(row);
+      else byVp.set(canon, [row]);
+    }
+
+    const areas: RegionResult[] = [];
+    for (const [vpId, recs] of byVp.entries()) {
+      const partyVotes = new Map<string, number>();
+      let totalVotes = 0;
+      for (const rec of recs) {
+        const slug =
+          PRESIDENTIAL_CANDIDATE_PARTY[rec.candidateId] ??
+          `_cand${rec.candidateId}`;
+        partyVotes.set(slug, (partyVotes.get(slug) ?? 0) + rec.votes);
+        totalVotes += rec.votes;
+      }
+      if (totalVotes === 0) continue;
+
+      const shares: Record<string, number> = {};
+      for (const [party, votes] of partyVotes.entries()) {
+        shares[party] = (votes / totalVotes) * 100;
+      }
+      areas.push({
+        regionId: vpId,
+        electionId,
+        votes: totalVotes,
+        voters: 0,
+        turnout: 0,
+        shares,
+      });
+    }
+
+    if (areas.length === 0) {
+      console.warn(`[prefetch]   ${electionId}: 0 areas after aggregation → status:no_data`);
+      return { electionId, status: "no_data" };
+    }
+    return { electionId, areas };
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    console.warn(`[prefetch]   ${electionId}: ${msg} → status:no_data`);
+    return { electionId, status: "no_data" };
+  }
+}
+
 
 /* ─── Main ──────────────────────────────────────────────────── */
 
