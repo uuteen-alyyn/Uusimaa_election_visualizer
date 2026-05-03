@@ -1,0 +1,43 @@
+/*
+ * Phase 0 placeholder styles.
+ * Full design tokens (paper, ink, party colors, type ramp) extracted
+ * from prototype/Wireframes.html arrive in Phase 0 (3/4) as
+ * tokens.css + primitives.css.
+ */
+
+html,
+body {
+  margin: 0;
+  background: #efebe0;
+  color: #1a1a1a;
+  font-family: "Architects Daughter", system-ui, sans-serif;
+}
+
+.page {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  padding: 32px;
+  gap: 24px;
+}
+
+.page header h1 {
+  font-family: "Caveat", cursive;
+  font-weight: 700;
+  font-size: 36px;
+  margin: 0 0 8px;
+}
+
+.page header .subtitle {
+  font-size: 14px;
+  opacity: 0.7;
+  margin: 0;
+}
+
+.page footer {
+  margin-top: auto;
+  padding-top: 24px;
+  border-top: 1px solid rgba(26, 26, 26, 0.2);
+  font-size: 11px;
+  opacity: 0.6;
+}

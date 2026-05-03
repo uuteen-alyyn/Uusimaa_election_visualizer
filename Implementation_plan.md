@@ -95,23 +95,25 @@ Uusimaa_election_visualizer/
 **Goal:** repo conforms to good-practices standards; dev server runs.
 
 - [x] Create `Implementation_plan.md` in repo root (mirror of plan)
-- [ ] Create `Logbook.md` with first entry stamped at scaffold time
-- [ ] Create `BACKLOG.md` with priority groups (🔴/🟡/🟢)
-- [ ] Update existing `CLAUDE.md` to reflect new layout + workflow
-- [ ] Add `.gitattributes` (`* text=auto eol=lf`) — kills CRLF warnings
-- [ ] Add `.gitignore` (`dist/`, `node_modules/`, `public/data/elections/`)
-- [ ] Initialize Vite app (`npm create vite@latest . -- --template react-ts`)
-      preserving existing files
-- [ ] Install runtime deps: `react`, `react-dom`, `html-to-image`
-- [ ] Install dev deps: `typescript`, `vite`, `vitest`,
-      `@types/{react,react-dom,node}`, `eslint`, `prettier`, `tsx`
+- [x] Create `Logbook.md` with first entry stamped at scaffold time
+- [x] Create `BACKLOG.md` with priority groups (🔴/🟡/🟢)
+- [x] Update existing `CLAUDE.md` to reflect new layout + workflow
+- [x] Add `.gitattributes` (`* text=auto eol=lf`) — kills CRLF warnings
+- [x] Add `.gitignore` (`dist/`, `node_modules/`, `public/data/elections/`)
+- [x] Initialize Vite app (hand-rolled scaffold: `package.json`,
+      `tsconfig.json`, `vite.config.ts`, `index.html`, `src/main.tsx`,
+      `src/App.tsx`, `src/vite-env.d.ts`, `src/styles/main.css`)
+- [x] Install runtime deps: `react`, `react-dom`, `html-to-image`
+- [x] Install dev deps: `typescript`, `vite`, `vitest`,
+      `@vitejs/plugin-react`, `@types/{react,react-dom,node}`, `eslint`,
+      `tsx`
 - [ ] Add elections submodule:
       `git submodule add https://github.com/uuteen-alyyn/vihrea-vaalidata-tilastotAPI-MCP submodules/elections`
 - [ ] Pin submodule to a known-good SHA; record SHA in logbook
 - [ ] Extract design tokens from
       [prototype/Wireframes.html](prototype/Wireframes.html) `<style>`
       block into `src/styles/tokens.css` + `src/styles/primitives.css`
-- [ ] Add Google Fonts link (Caveat, Architects Daughter, JetBrains
+- [x] Add Google Fonts link (Caveat, Architects Daughter, JetBrains
       Mono) in `index.html`
 - [ ] Stub `src/types/elections.ts` with `RegionId`, `PartyId`,
       `ElectionId`, `RegionResult`, `Workflow`, `FormulaToken`,
@@ -122,7 +124,7 @@ Uusimaa_election_visualizer/
 - [ ] Stub `src/data/catalog.ts` with `ELECTIONS` and `ELECTION_TYPES`
       ported from
       [prototype/wf-workflows.jsx:29](prototype/wf-workflows.jsx#L29)
-- [ ] Add `npm` scripts: `dev`, `build` (= `prefetch && vite build`),
+- [x] Add `npm` scripts: `dev`, `build` (= `prefetch && tsc && vite build`),
       `prefetch`, `test`, `typecheck`, `lint`
 
 **Acceptance test:**

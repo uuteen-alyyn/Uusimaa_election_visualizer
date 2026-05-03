@@ -73,8 +73,7 @@ files changed, build status, test count, commit hash, decisions, notes.
 
 **Commit hash**
 
-- Pending — `Phase 0 (1/4): required project files per good practices`
-  is the next commit (this session)
+- `3593c71` — `Phase 0 (1/4): required project files per good practices`
 - Initial commit `58939ca` (24 files, 4,559 insertions) covers the
   prototype handoff bundle and was made earlier today
 
@@ -87,6 +86,88 @@ files changed, build status, test count, commit hash, decisions, notes.
 - Reference doc: `CLAUDE CODE_GOOD PRACTICES.md` (committed at the
   repo root in this commit) is the source of truth for project
   standards across the user's projects.
+
+---
+
+## ENTRY Phase 0 (2/4) — Vite + React + TS scaffold 2026-05-03
+
+**What was done**
+
+- Hand-rolled Vite + React 18 + TypeScript scaffold (no `npm create
+  vite`; we already had docs in the dir, so writing the files
+  directly was cleaner than wrestling with the interactive prompt)
+- Wrote tooling config: `.gitattributes` (LF-only, kills CRLF
+  warnings), `.gitignore` (adds `dist/`, `.vite/`,
+  `public/data/elections/`, `coverage/`)
+- Wrote project files: `package.json`, `tsconfig.json` (strict + `noEmit`,
+  Bundler module resolution, `noUncheckedIndexedAccess`),
+  `vite.config.ts`, `index.html` with Google Fonts preload (Caveat /
+  Architects Daughter / JetBrains Mono)
+- Wrote skeleton React app: `src/main.tsx`, `src/App.tsx` (placeholder
+  with footer attribution stub), `src/vite-env.d.ts`,
+  `src/styles/main.css` (placeholder; full token extraction in
+  Phase 0 (3/4))
+- Wrote `scripts/build-fixtures.ts` as a no-op stub so
+  `npm run prefetch` exits 0 — Phase 1 will wire it to the elections
+  submodule's loaders
+- `npm install` — 198 packages installed, lockfile generated
+- Verified pre-commit gates: `npm run typecheck` ✓,
+  `npm run build` ✓ (1.14s, output 46 KB gzipped JS),
+  `npm test` ✓ (`--passWithNoTests` flag added so 0 tests exits 0)
+
+**Decisions**
+
+- **Hand-rolled Vite scaffold** instead of running `npm create vite@latest`,
+  since the project directory already contained docs/data/prototype.
+  Same final layout, no surprises.
+- **Single `tsconfig.json`** with `noEmit: true` (Vite handles
+  bundling) — simpler than the dual `tsconfig.app.json` +
+  `tsconfig.node.json` template Vite scaffolds by default. Includes
+  both `src/` and `scripts/` so the prefetch script is type-checked.
+- **`--passWithNoTests` on `vitest run`** so the test gate doesn't
+  block early phases. Removed if/when we want CI to fail on
+  accidentally-wiped test files.
+- **Vulnerabilities**: `npm audit` reports 5 moderate, all variants
+  of esbuild's dev-server CORS (transitively via vitest's bundled
+  vite). Dev-only. Not blocking. Tracked in BACKLOG (🟡).
+
+**Files changed**
+
+- New: `.gitattributes`, `.gitignore` (replaces the earlier
+  pre-scaffold version), `package.json`, `package-lock.json`,
+  `tsconfig.json`, `vite.config.ts`, `index.html`, `src/main.tsx`,
+  `src/App.tsx`, `src/vite-env.d.ts`, `src/styles/main.css`,
+  `scripts/build-fixtures.ts`
+- Modified: `Implementation_plan.md` (Phase 0 task checkboxes),
+  `Logbook.md` (this entry + backfilled hash for previous entry),
+  `BACKLOG.md` (added esbuild dev-server audit item)
+
+**Build status**
+
+- `npm run typecheck` — clean
+- `npm run build` — clean, 1.14s, 46.40 KB gzipped JS bundle
+- `npm test` — 0 tests, exits 0
+
+**Test count**
+
+- 0 / 0 (no tests yet; first batch arrives in Phase 1 for
+  `share-state.test.ts` and Phase 2 for geometry + color-ramps)
+
+**Commit hash**
+
+- Pending this session (will be backfilled in the next entry)
+
+**Notes**
+
+- Vite resolved to 6.4.2 (not the 6.0.7 minimum I declared). 6.4.2
+  passes the top-level esbuild advisory; the audit warnings remaining
+  come from vitest's nested vite. Dev-only.
+- The dev server smoke test (`npm run dev`) was deferred to manual
+  verification. The build artifact is valid; user can open
+  `http://localhost:5173` after running `npm run dev`.
+- Next: Phase 0 (3/4) adds the elections submodule + extracts the
+  full design-token system from `prototype/Wireframes.html` into
+  `src/styles/tokens.css` and `src/styles/primitives.css`.
 - Server team's deploy answer is captured verbatim in `BACKLOG.md`'s
   Phase 5 references; the Caddyfile snippet is in the implementation
   plan and will be committed under `deploy/Caddyfile.snippet` in

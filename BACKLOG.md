@@ -24,6 +24,14 @@ Format: priority emoji + short title + status note + date added.
   `refresh-fixtures.yml` cron should open auto-PRs when new election
   data lands at PxWeb. Manual trigger is fine for v1; automation is a
   v1.x improvement. *(added 2026-05-03)*
+- **`npm audit` — esbuild dev-server CORS (5 moderate)** — vitest's
+  bundled vite still depends on esbuild ≤ 0.24.2, which allows any
+  page to read your localhost dev server's responses
+  ([GHSA-67mh-4wv8-2f99](https://github.com/advisories/GHSA-67mh-4wv8-2f99)).
+  Dev-only; production bundle is unaffected. Fix: bump vitest to 4.x
+  (breaking change, but we have no tests yet so it's safe to do
+  before Phase 1). Address before adding any external collaborator
+  to a dev session. *(added 2026-05-03)*
 
 ---
 
