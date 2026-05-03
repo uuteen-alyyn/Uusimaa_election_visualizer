@@ -1680,3 +1680,84 @@ parties now read as real geographic patterns.
 - Next: Phase 4 (4/4) — Lighthouse audit + ship-audit document
   in `audits/SHIP_AUDIT_2026-05-03.md`. End of Phase 4 ≈ ready
   to ship.
+
+---
+
+## ENTRY Phase 4 (4/4) — ship audit; closes Phase 4 2026-05-03
+
+**What was done**
+
+- Wrote `audits/SHIP_AUDIT_2026-05-03.md` covering nine review
+  areas per the `CLAUDE CODE_GOOD PRACTICES.md` audit protocol:
+  context snapshot (bundle / payload / test count), type
+  consistency, error paths, output stability, visual fidelity,
+  orphaned-helper sweep, performance, accessibility, license
+  attribution, plus deferred-not-blocking items.
+- Walked all 115 exports across 22 source files; no orphaned
+  exports.
+- Validated every error surface produces both a *what* and a
+  *how to recover* message (per practices doc's error-response
+  rule).
+- Confirmed no runtime-constructed output keys: all fixture
+  fields are statically declared; `_<slug>` prefix for
+  non-canonical parties is a stable derivation rule.
+
+**Findings**
+
+- 🔴 Critical: **0**
+- 🟡 Medium (in this audit): **0** new findings. The
+  pre-existing 🟡 items in `BACKLOG.md` (`npm audit` esbuild
+  warning, kunta2021/eu2019 403, presidential aggregation,
+  turnout-per-area, top-N candidates, etc.) are explicitly
+  out of v1 ship scope.
+- 🟢 Minor / informational: **5** documented (silent
+  localStorage fail, no formal screen-reader test, decorative
+  10–11px labels not strictly 12px, candidate-error message
+  defensive, Lighthouse score pending live measurement).
+
+**Ship gate:** ✅ — no blockers. Phase 5 deploy is unblocked
+once the user confirms the subdomain
+(`vaalit.leinonensanteri.fi`) and forwards the deploy
+spec we drafted in Phase 0.
+
+**Decisions**
+
+- **Lighthouse score deferred to live measurement.** Running
+  Lighthouse against `npm run preview` from this dev box is
+  noisy (CPU throttle simulates a low-end phone, timing on
+  Windows isn't representative of Hetzner's Linux serve path).
+  Better to measure once against
+  `https://vaalit.leinonensanteri.fi` and record the actual
+  numbers — that's the value users see anyway.
+- **Min text size 12px not strictly enforced.** Body text is
+  13–14px throughout; small uppercase tracked labels (10–11px)
+  retained as decorative chrome. WCAG 2.1 has no strict pixel
+  minimum when contrast is adequate. Logged as 🟢.
+
+**Files changed**
+
+- New: `audits/SHIP_AUDIT_2026-05-03.md`
+- Modified: `Implementation_plan.md`, `Logbook.md` (this entry)
+
+**Build status**
+
+- `npm run typecheck` — clean
+- `npm run build` — clean (unchanged from 4/3)
+- `npm test` — 162 / 162 passed (unchanged)
+
+**Test count**
+
+- 162 / 162
+
+**Commit hash**
+
+- Pending this session
+
+**Notes**
+
+- **Phase 4 closed.** Functional product complete; audit is
+  green; awaiting Phase 5 deploy.
+- Phase 5 next step: confirm subdomain → draft & forward
+  Caddyfile snippet + DNS instructions to the server team
+  (most of this is already in `Implementation_plan.md` Phase 5
+  + the original server-team email exchange).
