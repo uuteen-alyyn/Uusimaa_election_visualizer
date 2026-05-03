@@ -1,0 +1,157 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>Finnish Election Visualizer — Wireframes</title>
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Caveat:wght@400;600;700&family=Architects+Daughter&family=Kalam:wght@300;400;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+
+<style>
+  :root{
+    --ink:#1a1a1a;
+    --ink-soft:#3a3a3a;
+    --ink-mute:#7a7a7a;
+    --paper:#fbf9f4;
+    --paper-2:#f4f0e6;
+    --line:#1a1a1a;
+    --hair:rgba(26,26,26,0.35);
+    --grid:rgba(26,26,26,0.08);
+
+    /* Party accents (subtle, for map swatches only) */
+    --p-sdp:#d94a4a;     /* SDP red */
+    --p-kok:#1f5a9c;     /* Kokoomus blue */
+    --p-kesk:#2e8f4a;    /* Keskusta green */
+    --p-ps:#2a4a7a;      /* Perussuomalaiset dark blue */
+    --p-vihr:#4a9c3a;    /* Vihreät light green */
+    --p-vas:#c94a2a;     /* Vasemmistoliitto */
+    --p-rkp:#e8b84a;     /* RKP yellow */
+    --p-kd:#4a6aa0;      /* KD */
+
+    /* Change scale */
+    --ch-plus:#2e8f4a;
+    --ch-minus:#c43a3a;
+  }
+
+  html,body{margin:0;background:#efebe0;color:var(--ink);font-family:"Architects Daughter",system-ui,sans-serif;}
+
+  /* =========== Wireframe primitives =========== */
+  .wf{
+    font-family:"Architects Daughter","Kalam",system-ui,sans-serif;
+    background:var(--paper);
+    color:var(--ink);
+    position:relative;
+    overflow:hidden;
+    box-sizing:border-box;
+  }
+  .wf *{box-sizing:border-box}
+  .wf .h{font-family:"Caveat",cursive;font-weight:700;letter-spacing:.2px}
+  .wf .mono{font-family:"JetBrains Mono",monospace;}
+
+  .box{border:1.5px solid var(--line);border-radius:6px;background:var(--paper)}
+  .box.soft{background:var(--paper-2)}
+  .box.dashed{border-style:dashed;border-color:var(--hair)}
+  .pill{display:inline-flex;align-items:center;gap:6px;border:1.2px solid var(--line);border-radius:999px;padding:3px 10px;background:var(--paper);font-size:13px}
+  .pill.on{background:var(--ink);color:var(--paper)}
+  .chip{display:inline-flex;align-items:center;gap:5px;border:1px solid var(--line);border-radius:4px;padding:2px 7px;font-size:12px;background:var(--paper)}
+  .swatch{width:10px;height:10px;border-radius:2px;border:1px solid rgba(0,0,0,.3);display:inline-block}
+  .hair{height:1px;background:var(--hair);width:100%}
+
+  /* Sketchy buttons */
+  .btn{
+    border:1.5px solid var(--line);background:var(--paper);
+    padding:5px 10px;border-radius:6px;font-family:inherit;font-size:13px;cursor:pointer;
+    transform:rotate(-.2deg);
+  }
+  .btn.primary{background:var(--ink);color:var(--paper)}
+
+  /* Tab strip */
+  .tabs{display:flex;gap:0;border-bottom:1.5px solid var(--line)}
+  .tab{padding:7px 14px;border:1.5px solid var(--line);border-bottom:none;border-top-left-radius:8px;border-top-right-radius:8px;background:var(--paper-2);font-size:13px;margin-right:-1.5px;cursor:pointer}
+  .tab.on{background:var(--paper);font-weight:700;position:relative;top:1px;border-bottom:1.5px solid var(--paper)}
+
+  /* Scribble placeholder strokes */
+  .scribble{background:
+    repeating-linear-gradient(135deg, transparent 0 7px, rgba(0,0,0,.08) 7px 8px);
+  }
+
+  /* Bar chart rows */
+  .bar-row{display:grid;grid-template-columns:70px 1fr 44px;gap:8px;align-items:center;margin:4px 0;font-size:12px}
+  .bar{height:10px;border:1px solid var(--line);border-radius:2px;position:relative;background:var(--paper)}
+  .bar > span{display:block;height:100%}
+
+  /* Sketch annotations */
+  .note{font-family:"Caveat",cursive;font-size:18px;color:var(--ink-soft)}
+  .arrow{position:absolute;font-family:"Caveat",cursive;font-size:16px;color:var(--ink-soft)}
+
+  /* Small iconic "map" shapes rendered via CSS for wireframe feel */
+  .map-shape{position:relative;overflow:hidden;border:1.5px solid var(--line);border-radius:8px;background:var(--paper-2)}
+
+  /* Legend bar (for color scale) */
+  .scalebar{height:10px;border:1px solid var(--line);border-radius:2px;
+    background:linear-gradient(90deg,#c43a3a,#eadbc6 50%,#2e8f4a);
+  }
+  .scalebar.single{
+    background:linear-gradient(90deg,#f4f0e6,#1f5a9c);
+  }
+
+  /* Legend dots */
+  .dot{width:8px;height:8px;border-radius:50%;display:inline-block;border:1px solid rgba(0,0,0,.3)}
+
+  /* Faux crosshatch for "no data" */
+  .nodata{background:repeating-linear-gradient(45deg,#e6e0cf 0 5px,#d8d1bd 5px 6px)}
+
+  /* Stroke-y underline */
+  .uline{text-decoration:underline wavy rgba(0,0,0,.35);text-underline-offset:3px}
+
+  /* Breadcrumb */
+  .crumb{display:flex;align-items:center;gap:8px;font-size:14px}
+  .crumb .sep{opacity:.5}
+
+  /* Two-col map+panel grid helper */
+  .split{display:grid;gap:0;height:100%}
+
+  /* Tiny icons drawn with CSS */
+  .i-zoom-in,.i-zoom-out,.i-loc,.i-layers,.i-download,.i-search,.i-hamburger,.i-play,.i-info,.i-close{
+    display:inline-block;width:18px;height:18px;position:relative;
+  }
+  .i-zoom-in::before{content:"＋";font-family:system-ui;font-size:16px;line-height:18px;display:block;text-align:center}
+  .i-zoom-out::before{content:"−";font-family:system-ui;font-size:16px;line-height:18px;display:block;text-align:center}
+  .i-search::before{content:"⌕";font-size:16px;line-height:18px;display:block;text-align:center}
+  .i-hamburger::before{content:"☰";font-size:14px;line-height:18px;display:block;text-align:center}
+  .i-loc::before{content:"◉";font-size:12px;line-height:18px;display:block;text-align:center}
+  .i-layers::before{content:"▤";font-size:14px;line-height:18px;display:block;text-align:center}
+  .i-download::before{content:"↓";font-size:14px;line-height:18px;display:block;text-align:center}
+  .i-play::before{content:"▶";font-size:11px;line-height:18px;display:block;text-align:center}
+  .i-info::before{content:"ⓘ";font-size:13px;line-height:18px;display:block;text-align:center}
+  .i-close::before{content:"✕";font-size:13px;line-height:18px;display:block;text-align:center}
+
+  /* Stamp */
+  .stamp{
+    position:absolute;right:14px;top:14px;transform:rotate(4deg);
+    border:2px dashed rgba(0,0,0,.3);padding:4px 9px;border-radius:6px;
+    font-family:"Caveat",cursive;font-size:16px;color:rgba(0,0,0,.5);
+  }
+</style>
+
+<script src="https://unpkg.com/react@18.3.1/umd/react.development.js" integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/html-to-image@1.11.11/dist/html-to-image.js"></script>
+</head>
+<body>
+
+<div id="root"></div>
+
+<script type="text/babel" src="wf-geo.jsx"></script>
+<script type="text/babel" src="wf-map.jsx"></script>
+<script type="text/babel" src="wf-pieces.jsx"></script>
+<script type="text/babel" src="wf-workflows.jsx"></script>
+<script type="text/babel" src="wf-suggest.jsx"></script>
+<script type="text/babel" src="wf-variants.jsx"></script>
+<script type="text/babel" src="design-canvas.jsx"></script>
+<script type="text/babel" src="app.jsx"></script>
+
+</body>
+</html>
