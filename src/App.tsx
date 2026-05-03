@@ -391,15 +391,23 @@ export function App(): JSX.Element {
         formula: formulaTokens,
       };
     }
+    // Votes mode treats `focusParty == null` as "Kaikki puolueet"
+    // (color by total votes). Don't backfill DEFAULT_PARTY — that
+    // would silently flip the user's "Kaikki" choice to KOK on
+    // save / share-link round trip.
+    const partyForActive: PartyId | undefined = WF_KIND_BY_ID[mode]
+      .needsParty
+      ? mode === "votes"
+        ? (focusParty ?? undefined)
+        : (focusParty ?? DEFAULT_PARTY)
+      : undefined;
     return {
       id: "__active",
       label: "active",
       kind: mode,
       election,
       refElection: mode === "change" ? refElection : undefined,
-      party: WF_KIND_BY_ID[mode].needsParty
-        ? (focusParty ?? DEFAULT_PARTY)
-        : undefined,
+      party: partyForActive,
     };
   }, [mode, election, refElection, focusParty, formulaTokens, appliedWorkflowId]);
 
@@ -442,7 +450,14 @@ export function App(): JSX.Element {
       }
 
       if (WF_KIND_BY_ID[w.kind].needsParty) {
-        setFocusParty(w.party ?? DEFAULT_PARTY);
+        // Votes: a workflow without a `party` means "Kaikki puolueet"
+        // (color by total votes). Support / change still need a party,
+        // so substitute the default for safety.
+        if (w.kind === "votes") {
+          setFocusParty(w.party ?? null);
+        } else {
+          setFocusParty(w.party ?? DEFAULT_PARTY);
+        }
       } else {
         setFocusParty(null);
       }
@@ -1046,7 +1061,11 @@ export function App(): JSX.Element {
                     style={{ width: 1, height: 22, background: "var(--hair)", margin: "0 4px" }}
                   />
                   <ParamLabel>Puolue</ParamLabel>
-                  <PartyPicker value={focusParty} onChange={setFocusParty} />
+                  <PartyPicker
+                    value={focusParty}
+                    onChange={setFocusParty}
+                    allowAll={mode === "votes"}
+                  />
                 </>
               ) : null}
             </>
