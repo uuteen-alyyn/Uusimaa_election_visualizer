@@ -17,6 +17,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { Crumb } from "./components/Crumb";
 import { DownloadMenu } from "./components/DownloadMenu";
+import { DynamicLegend } from "./components/DynamicLegend";
 import { ElectionPicker } from "./components/ElectionPicker";
 import { HierarchyMap, type DisplayLevel } from "./components/HierarchyMap";
 import { Ledger, type LedgerLevelLabel } from "./components/Ledger";
@@ -32,6 +33,7 @@ import {
   PARTY_BY_ID,
   ELECTION_TYPES,
 } from "./data/catalog";
+import { pickWinner, pointChange } from "./lib/color-ramps";
 import { LocalFixtureSource } from "./data/elections-source";
 import { loadGeometry, type ProjectedGeometry } from "./data/geometry";
 
@@ -42,6 +44,8 @@ import {
   downloadMapPng,
   downloadMapSvg,
 } from "./lib/exports";
+
+const NUM_FI = new Intl.NumberFormat("fi-FI");
 import {
   evalFormula,
   formulaRange as computeFormulaRange,
@@ -509,6 +513,81 @@ export function App(): JSX.Element {
     ],
   );
 
+  /* ─── Hover tooltip text (mode-specific) ────────────────── */
+
+  const getTooltip = useCallback(
+    (regionId: string, label: string): string => {
+      const result = currentResults?.get(regionId);
+      if (!result) return `${label} — Ei tietoja`;
+      switch (mode) {
+        case "winner": {
+          const winner = pickWinner(result);
+          if (!winner) return `${label} — Ei tuloksia`;
+          const share = result.shares[winner] ?? 0;
+          const partyName = PARTY_BY_ID[winner]?.name ?? winner;
+          return `${label} — ${partyName} ${share.toFixed(1)}%`;
+        }
+        case "support": {
+          if (!focusParty) return label;
+          const share = result.shares[focusParty] ?? 0;
+          const abbr = PARTY_BY_ID[focusParty]?.abbr ?? focusParty;
+          return `${label} — ${abbr} ${share.toFixed(1)}%`;
+        }
+        case "votes":
+          return `${label} — ${NUM_FI.format(result.votes)} ääntä`;
+        case "change": {
+          const refResult = refResults?.get(regionId);
+          if (!focusParty || !refResult) return `${label} — Ei vertailutietoja`;
+          const delta = pointChange(result, refResult, focusParty);
+          if (delta == null) return `${label} — Ei vertailutietoja`;
+          const sign = delta > 0 ? "+" : "";
+          const abbr = PARTY_BY_ID[focusParty]?.abbr ?? focusParty;
+          return `${label} — ${abbr} ${sign}${delta.toFixed(1)} pp`;
+        }
+        case "formula": {
+          const v = formulaValueByRegion.get(regionId);
+          if (v == null) return `${label} — kaava: ei arvoa`;
+          const unit =
+            framing === "share" || framing === "vsSelected" ? "%" : "";
+          const sign = framing === "vsSelected" && v > 0 ? "+" : "";
+          return `${label} — ƒ ${sign}${v.toFixed(1)}${unit}`;
+        }
+      }
+    },
+    [currentResults, refResults, mode, focusParty, formulaValueByRegion, framing],
+  );
+
+  /* ─── Legend inputs ────────────────────────────────────── */
+
+  /** Unique winner-party set across visible regions (for the
+   *  winner-mode legend). Sorted by frequency desc so the most
+   *  common winner appears first. */
+  const winnerPartiesInView = useMemo<PartyId[]>(() => {
+    if (mode !== "winner" || !currentResults) return [];
+    const counts = new Map<PartyId, number>();
+    for (const id of visibleRegionIds) {
+      const r = currentResults.get(id);
+      if (!r) continue;
+      const w = pickWinner(r);
+      if (!w) continue;
+      counts.set(w, (counts.get(w) ?? 0) + 1);
+    }
+    return [...counts.entries()].sort((a, b) => b[1] - a[1]).map(([p]) => p);
+  }, [mode, currentResults, visibleRegionIds]);
+
+  /** Whether at least one visible region renders the no-data
+   *  crosshatch — used to add an "Ei tietoja" entry to the legend. */
+  const hasNoDataInView = useMemo<boolean>(() => {
+    if (!currentResults) return false;
+    if (mode === "formula") return false;
+    for (const id of visibleRegionIds) {
+      const r = currentResults.get(id);
+      if (!r) return true;
+      if (mode === "change" && (!focusParty || !refResults?.get(id))) return true;
+    }
+    return false;
+  }, [mode, currentResults, refResults, focusParty, visibleRegionIds]);
+
   /* ─── Drill handlers ───────────────────────────────────── */
 
   const onPick = useCallback((id: string) => setSelected(id), []);
@@ -790,21 +869,51 @@ export function App(): JSX.Element {
           className="dashboard-map"
           ref={mapAreaRef}
           aria-label={`Vaalituloskartta — ${electionLabel}`}
+          style={{ position: "relative" }}
         >
           {dataLoading || !geometry ? (
             <LoadingStamp electionLabel={electionLabel} />
           ) : (
-            <HierarchyMap
-              geometry={geometry}
-              level={level}
-              parentSlug={parentSlug}
-              selected={selected}
-              getFill={getFill}
-              onPick={onPick}
-              onZoomIn={onZoomIn}
-              width={520}
-              height={640}
-            />
+            <>
+              <HierarchyMap
+                geometry={geometry}
+                level={level}
+                parentSlug={parentSlug}
+                selected={selected}
+                getFill={getFill}
+                getTooltip={getTooltip}
+                onPick={onPick}
+                onZoomIn={onZoomIn}
+                width={520}
+                height={640}
+              />
+              <div
+                style={{
+                  position: "absolute",
+                  left: 12,
+                  bottom: 12,
+                  pointerEvents: "auto",
+                }}
+              >
+                <DynamicLegend
+                  mode={mode}
+                  focusParty={focusParty}
+                  winnerParties={winnerPartiesInView}
+                  hasNoData={hasNoDataInView}
+                  supportRange={supportRange}
+                  changeRange={changeRange}
+                  formulaRange={formulaRange}
+                  formulaSummary={
+                    mode === "formula" && resolvedFormula.length > 0
+                      ? formulaSummary(resolvedFormula)
+                      : null
+                  }
+                  framing={mode === "formula" ? framing : null}
+                  electionLabel={electionLabel}
+                  refElectionLabel={mode === "change" ? refLabel : undefined}
+                />
+              </div>
+            </>
           )}
         </div>
         <div className="dashboard-ledger">

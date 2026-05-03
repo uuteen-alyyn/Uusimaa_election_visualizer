@@ -48,19 +48,20 @@ export function ShareLinkPill({ onToast }: ShareLinkPillProps): JSX.Element {
       }}
       style={{
         cursor: "pointer",
-        fontSize: 11,
-        opacity: 0.8,
-        borderStyle: "dotted",
-        background: "transparent",
+        fontSize: 12,
+        opacity: 1,
+        borderStyle: "solid",
+        background: "var(--paper)",
         display: "inline-flex",
         alignItems: "center",
         gap: 4,
         flexShrink: 0,
+        boxShadow: "var(--shadow-soft)",
         transform: pulse ? "scale(0.97)" : undefined,
         transition: "transform 120ms",
       }}
     >
-      <span style={{ fontSize: 11, lineHeight: 1 }} aria-hidden="true">
+      <span style={{ fontSize: 12, lineHeight: 1 }} aria-hidden="true">
         ↗
       </span>
       Jaa linkki

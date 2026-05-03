@@ -88,19 +88,20 @@ export function DownloadMenu({
         }}
         style={{
           cursor: disabled ? "not-allowed" : "pointer",
-          fontSize: 11,
-          opacity: disabled ? 0.45 : 0.8,
-          borderStyle: "dotted",
-          background: "transparent",
+          fontSize: 12,
+          opacity: disabled ? 0.45 : 1,
+          borderStyle: "solid",
+          background: "var(--paper)",
           display: "inline-flex",
           alignItems: "center",
           gap: 4,
+          boxShadow: "var(--shadow-soft)",
         }}
       >
-        <span style={{ fontSize: 11, lineHeight: 1 }} aria-hidden="true">
+        <span style={{ fontSize: 12, lineHeight: 1 }} aria-hidden="true">
           ↓
         </span>
-        Lataa
+        Lataa kuvana
       </span>
       {open ? (
         <div

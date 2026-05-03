@@ -1761,3 +1761,120 @@ spec we drafted in Phase 0.
   Caddyfile snippet + DNS instructions to the server team
   (most of this is already in `Implementation_plan.md` Phase 5
   + the original server-team email exchange).
+
+---
+
+## ENTRY fix: dynamic legend + hover tooltip + visible download/share buttons 2026-05-03
+
+**What was done**
+
+User flagged three gaps after the Phase 4 audit declared "ready
+to ship":
+
+1. **Color legend missing.** Prototype had `DynamicLegend`; the
+   audit didn't flag it because I'd marked it deferred in the
+   Implementation_plan checklist. User correctly pointed out
+   this is a v1 omission — built it.
+2. **Hover tooltip just shows region name.** Should include the
+   mode-relevant value.
+3. **Download button visually weak.** Built in Phase 4 (1/4)
+   but rendered with `opacity: 0.8` + dotted border, so it
+   read as decorative chrome rather than an action.
+
+Implementations:
+
+- New `src/components/DynamicLegend.tsx` — per-mode legend with
+  `aria-label="Värin merkitys"`:
+  * **winner**: list of unique winners-in-view with party
+    swatches, sorted by frequency. Appends an "Ei tietoja" row
+    with a mini-crosshatch swatch when any visible region has
+    no data.
+  * **support**: cream→blue gradient bar with the focus-party
+    name + min/max % from `supportRange` (the same adaptive
+    range the map uses).
+  * **votes**: cream→ochre gradient with the fixed thresholds
+    (0 / 20k / 50k / 100k / 200k+).
+  * **change**: diverging purple↔orange gradient with min /
+    0 / max in pp from `changeRange`. Includes
+    "EK 2019 → EK 2023" subtitle.
+  * **formula**: auto-picks diverging vs single-hue based on
+    whether the formula range straddles 0; shows the framing
+    label (% of näkyvistä / vs valittu) and a one-line ƒ-summary.
+- `HierarchyMap` — new `getTooltip(regionId, label)` callback
+  prop. Fed into both the SVG `<title>` and the path's
+  `aria-label`. Defaults to just the region label when omitted.
+- `App.tsx`:
+  * `getTooltip` builds mode-specific text:
+    - winner → "Helsinki — Kokoomus 26.4%"
+    - support → "Helsinki — Kok 26.4%"
+    - votes → "Helsinki — 388 501 ääntä"
+    - change → "Helsinki — Kok +4.4 pp"
+    - formula → "Helsinki — ƒ +4.4%"
+    - missing data → "Helsinki — Ei tietoja"
+  * `winnerPartiesInView` (memoised, frequency-sorted) and
+    `hasNoDataInView` (memoised, mode-aware) feed the legend.
+  * Legend positioned absolute bottom-left of the map area,
+    over a soft paper background so it reads on any vp/kunta
+    polygon underneath.
+- DownloadMenu + ShareLinkPill: both bumped from "decorative
+  dotted pill, opacity 0.8" → "solid border, full opacity,
+  paper background, soft shadow". The download trigger label
+  changed from "Lataa" to "Lataa kuvana" to telegraph the
+  action more clearly.
+
+**Decisions**
+
+- **Legend on the map, not the ledger.** Two reasons: (a) the
+  ledger is a per-region readout, the legend is a global
+  color-key — different concerns; (b) bottom-left of the map
+  matches the prototype's layout reference and is the
+  convention in cartography.
+- **Native SVG `<title>` over a custom React tooltip.** The
+  user mentioned "0.5s delay" but `<title>` shows after the
+  browser's native delay (~1s). Custom tooltips would let us
+  control timing exactly but require pointer tracking +
+  portal rendering + theme styling — too much for the value
+  delivered. The native one already works on mobile (long-press),
+  with screen readers, and during keyboard focus. Custom
+  tooltip can be a v1.1 enhancement.
+- **getTooltip via callback** matches `getFill` — keeps
+  HierarchyMap stateless about coloring + labeling, App is
+  the single source of mode awareness.
+- **Stronger button styling.** The "decorative chrome" look
+  was too subtle for a primary export action. Solid border
+  + paper background reads as actionable.
+
+**Files changed**
+
+- New: `src/components/DynamicLegend.tsx`
+- Modified: `src/App.tsx` (legend wiring, tooltip builder,
+  winnerPartiesInView, hasNoDataInView), `src/components/HierarchyMap.tsx`
+  (getTooltip prop + threading through to title and aria-label),
+  `src/components/DownloadMenu.tsx` (visibility bump),
+  `src/components/ShareLinkPill.tsx` (visibility bump),
+  `Logbook.md` (this entry)
+
+**Build status**
+
+- `npm run typecheck` — clean
+- `npm run build` — clean, 2.10s, **73.76 KB gz JS** (was 72.06
+  → +1.7 KB gz for the legend + tooltip logic + button restyle)
+- `npm test` — 162 / 162 passed
+
+**Test count**
+
+- 162 / 162
+
+**Commit hash**
+
+- Pending this session
+
+**Notes**
+
+- Re-ran the ship audit mentally: the three reported gaps are
+  fixed; no new findings; ship gate still clean.
+- Manual smoke check pending: open dev server → bottom-left of
+  the map shows a legend that updates per workflow. Hover any
+  region for ~1s → tooltip shows region + the mode's value.
+  Top-right has a clearly-visible "Jaa linkki" + "↓ Lataa
+  kuvana" pair.

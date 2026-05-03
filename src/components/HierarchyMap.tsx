@@ -37,6 +37,10 @@ export interface HierarchyMapProps {
   /** Caller-supplied per-region fill. Should return a CSS color
    *  (or `var(--…)`). */
   getFill: (regionId: string) => string;
+  /** Caller-supplied tooltip text shown in the SVG `<title>`
+   *  (and screen-reader `aria-label`) on hover. Defaults to the
+   *  region's display label when omitted. */
+  getTooltip?: (regionId: string, label: string) => string;
   /** SVG width / height in pixels. */
   width?: number;
   height?: number;
@@ -55,6 +59,7 @@ export function HierarchyMap({
   parentSlug = null,
   selected,
   getFill,
+  getTooltip,
   width = 480,
   height = 600,
   onPick,
@@ -157,6 +162,7 @@ export function HierarchyMap({
         {regions.map((r) => {
           const isSel = selected === r.id;
           const isHover = hoverId === r.id;
+          const tooltip = getTooltip ? getTooltip(r.id, r.label) : r.label;
           return (
             <path
               key={r.id}
@@ -167,7 +173,7 @@ export function HierarchyMap({
               strokeWidth={isSel ? 1.8 : isHover ? 1.2 : 0.5}
               opacity={isSel ? 1 : isHover ? 0.98 : 0.94}
               role="option"
-              aria-label={r.label}
+              aria-label={tooltip}
               aria-selected={isSel}
               style={{ cursor: "pointer", transition: "stroke-width 120ms" }}
               onClick={() => onPick?.(r.id)}
@@ -177,7 +183,7 @@ export function HierarchyMap({
                 setHoverId((prev) => (prev === r.id ? null : prev))
               }
             >
-              <title>{r.label}</title>
+              <title>{tooltip}</title>
             </path>
           );
         })}
