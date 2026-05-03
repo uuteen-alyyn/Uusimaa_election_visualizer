@@ -33,7 +33,7 @@ import {
   PARTY_BY_ID,
   ELECTION_TYPES,
 } from "./data/catalog";
-import { pickWinner, pointChange } from "./lib/color-ramps";
+import { pickWinner, pointChange, votesValue } from "./lib/color-ramps";
 import { LocalFixtureSource } from "./data/elections-source";
 import { loadGeometry, type ProjectedGeometry } from "./data/geometry";
 
@@ -491,22 +491,24 @@ export function App(): JSX.Element {
     return { min, max };
   }, [mode, focusParty, currentResults, refResults, visibleRegionIds]);
 
-  /** Range of total votes across visible regions — keeps the votes
-   *  ramp readable at kunta level where one big city (Oulu, Tampere,
-   *  Helsinki) often dwarfs every other kunta in the same vp. */
+  /** Range of votes across visible regions — party-specific when a
+   *  focus party is set (the votes mode's party picker), total
+   *  otherwise. Keeps the votes ramp readable at kunta level where
+   *  one big city often dwarfs every other kunta in the same vp. */
   const votesRange = useMemo(() => {
     if (mode !== "votes" || !currentResults) return null;
     let min = Infinity;
     let max = -Infinity;
     for (const id of visibleRegionIds) {
-      const v = currentResults.get(id)?.votes;
-      if (v == null) continue;
+      const r = currentResults.get(id);
+      if (!r) continue;
+      const v = votesValue(r, focusParty);
       if (v < min) min = v;
       if (v > max) max = v;
     }
     if (!Number.isFinite(min) || !Number.isFinite(max) || min === max) return null;
     return { min, max };
-  }, [mode, currentResults, visibleRegionIds]);
+  }, [mode, focusParty, currentResults, visibleRegionIds]);
 
   // Per-region formula values (memoised, so getFill is O(1) per call).
   const formulaValueByRegion = useMemo(() => {
@@ -579,8 +581,14 @@ export function App(): JSX.Element {
           const abbr = PARTY_BY_ID[focusParty]?.abbr ?? focusParty;
           return `${label} — ${abbr} ${share.toFixed(1)}%`;
         }
-        case "votes":
-          return `${label} — ${NUM_FI.format(result.votes)} ääntä`;
+        case "votes": {
+          const v = votesValue(result, focusParty);
+          if (focusParty) {
+            const abbr = PARTY_BY_ID[focusParty]?.abbr ?? focusParty;
+            return `${label} — ${abbr} ${NUM_FI.format(v)} ääntä`;
+          }
+          return `${label} — ${NUM_FI.format(v)} ääntä`;
+        }
         case "change": {
           const refResult = refResults?.get(regionId);
           if (!focusParty || !refResult) return `${label} — Ei vertailutietoja`;
@@ -947,6 +955,7 @@ export function App(): JSX.Element {
                   hasNoData={hasNoDataInView}
                   supportRange={supportRange}
                   changeRange={changeRange}
+                  votesRange={votesRange}
                   formulaRange={formulaRange}
                   formulaSummary={
                     mode === "formula" && resolvedFormula.length > 0

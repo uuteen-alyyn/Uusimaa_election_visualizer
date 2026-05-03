@@ -84,7 +84,11 @@ export function fillForRegion(
         options.supportRange ?? null,
       );
     case "votes":
-      return votesFill(result!, options.votesRange ?? null);
+      return votesFill(
+        result!,
+        options.focusParty ?? null,
+        options.votesRange ?? null,
+      );
     case "change": {
       // Change mode needs *both* current and ref data; otherwise
       // crosshatch tells the user the comparison is unavailable
@@ -219,11 +223,30 @@ function singleHueRamp(v: number, range: { min: number; max: number }): string {
  *  When `range` is null, falls back to fixed thresholds tuned
  *  for the parliamentary vp level (Ahvenanmaa ~12 000 →
  *  Uusimaa ~565 000). */
+/** Resolve the value the votes ramp colors by:
+ *
+ *  - `focusParty` set → party-specific votes
+ *    (`region.votes × shares[party] / 100`)
+ *  - `focusParty` null → total votes
+ *
+ *  Exported so App's range computation uses the same value. */
+export function votesValue(
+  result: RegionResult,
+  focusParty: PartyId | null,
+): number {
+  if (focusParty) {
+    const share = result.shares[focusParty] ?? 0;
+    return Math.round((result.votes * share) / 100);
+  }
+  return result.votes;
+}
+
 function votesFill(
   result: RegionResult,
+  focusParty: PartyId | null,
   range: { min: number; max: number } | null,
 ): string {
-  const v = result.votes;
+  const v = votesValue(result, focusParty);
   if (range) {
     // Avoid log(0). Use max(1, …) — votes are always ≥ 0 in
     // practice; this guards against future no-data zeros.

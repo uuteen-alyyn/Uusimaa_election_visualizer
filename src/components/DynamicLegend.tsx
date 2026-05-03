@@ -43,6 +43,7 @@ interface DynamicLegendProps {
   hasNoData?: boolean;
   supportRange?: Range | null;
   changeRange?: Range | null;
+  votesRange?: Range | null;
   formulaRange?: Range | null;
   /** Pretty-printed formula summary (e.g. "Kok % (EK 2023) - …"). */
   formulaSummary?: string | null;
@@ -83,7 +84,13 @@ function Body(props: DynamicLegendProps): JSX.Element {
         />
       );
     case "votes":
-      return <VotesBody electionLabel={props.electionLabel} />;
+      return (
+        <VotesBody
+          focusParty={props.focusParty}
+          range={props.votesRange ?? null}
+          electionLabel={props.electionLabel}
+        />
+      );
     case "change":
       return (
         <ChangeBody
@@ -203,13 +210,23 @@ function SupportBody({
 /* ─── Votes ──────────────────────────────────────────────────── */
 
 function VotesBody({
+  focusParty,
+  range,
   electionLabel,
 }: {
+  focusParty: PartyId | null;
+  range: Range | null;
   electionLabel: string | undefined;
 }): JSX.Element {
+  const partyName = focusParty
+    ? PARTY_BY_ID[focusParty]?.name ?? focusParty
+    : null;
+  const caption = partyName
+    ? `${partyName} äänimäärä${electionLabel ? ` · ${electionLabel}` : ""}`
+    : `Annettu äänimäärä${electionLabel ? ` · ${electionLabel}` : ""}`;
   return (
     <>
-      <Caption>Annetut äänet {electionLabel ? `· ${electionLabel}` : ""}</Caption>
+      <Caption>{caption}</Caption>
       <div
         style={{
           height: 10,
@@ -220,24 +237,38 @@ function VotesBody({
         }}
         aria-hidden="true"
       />
-      <div
-        style={{
-          display: "flex",
-          justifyContent: "space-between",
-          fontSize: 10,
-          fontFamily: "var(--font-mono)",
-          opacity: 0.7,
-          marginTop: 4,
-        }}
-      >
-        <span>0</span>
-        <span>20k</span>
-        <span>50k</span>
-        <span>100k</span>
-        <span>200k+</span>
-      </div>
+      {range ? (
+        <RangeLabels
+          left={formatVotes(range.min)}
+          right={formatVotes(range.max)}
+        />
+      ) : (
+        <div
+          style={{
+            display: "flex",
+            justifyContent: "space-between",
+            fontSize: 10,
+            fontFamily: "var(--font-mono)",
+            opacity: 0.7,
+            marginTop: 4,
+          }}
+        >
+          <span>0</span>
+          <span>20k</span>
+          <span>50k</span>
+          <span>100k</span>
+          <span>200k+</span>
+        </div>
+      )}
     </>
   );
+}
+
+function formatVotes(v: number): string {
+  if (v >= 1_000_000) return (v / 1_000_000).toFixed(1) + "M";
+  if (v >= 10_000) return Math.round(v / 1000) + "k";
+  if (v >= 1000) return (v / 1000).toFixed(1) + "k";
+  return String(Math.round(v));
 }
 
 /* ─── Change (diverging) ────────────────────────────────────── */
