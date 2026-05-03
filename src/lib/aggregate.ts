@@ -66,7 +66,7 @@ export function aggregateRegions(
   }
   const candidates = Array.from(candAgg.values())
     .sort((a, b) => b.votes - a.votes)
-    .slice(0, 40);
+    .slice(0, 90);
 
   const result: RegionResult = {
     regionId: options.regionId,

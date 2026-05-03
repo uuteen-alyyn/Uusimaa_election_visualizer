@@ -423,13 +423,13 @@ async function loadPartyResultsYearFiltered(
 
 /* ─── Candidates (top-N per region) ─────────────────────────── */
 
-/** Top-N caps per region level. The Ledger renders these in a
- *  scrollable list, so generous numbers are fine — but the fixture
- *  size budget caps the total at ~10 MB. With ~13 candidate-bearing
- *  fixtures × ~13 vp + ~310 kunnat each, 40/20 keeps us well under
- *  ~2 MB of candidate payload. */
-const VP_TOP_N = 40;
-const KUNTA_TOP_N = 20;
+/** Top-N cap per region. 90 is generous enough for the largest
+ *  vp (Uusimaa, ~250 candidates) without filling the Ledger with
+ *  three-vote stragglers. Same cap for vp + kunta — small kuntat
+ *  naturally have fewer candidates with nonzero votes, so the
+ *  effective list shortens itself. Keeps fixture payload under
+ *  the 10 MB budget. */
+const TOP_N_PER_REGION = 90;
 
 /** Vp/hv-keyed list of candidate tables for an (electionType, year),
  *  e.g. `["helsinki", "uusimaa", …]` for parliamentary 2023.
@@ -637,9 +637,7 @@ function attachCandidates(
       .filter((c) => c.votes > 0)
       .sort((a, b) => b.votes - a.votes);
 
-    // 2-digit canonical id → vp/hv aggregate; 3-digit → kunta.
-    const topN = canon.length <= 2 ? VP_TOP_N : KUNTA_TOP_N;
-    aggregated.set(canon, sorted.slice(0, topN));
+    aggregated.set(canon, sorted.slice(0, TOP_N_PER_REGION));
   }
 
   for (const region of areas) {
@@ -832,7 +830,13 @@ const REPO_ROOT = resolve(SCRIPT_DIR, "..");
 const OUT_DIR = resolve(REPO_ROOT, "public/data/elections");
 const PUBLIC_DATA = resolve(REPO_ROOT, "public/data");
 const GEOMETRY_FILES = ["fi-vaalipiirit.json", "fi-kunnat.json"];
-const SIZE_BUDGET_BYTES = 10 * 1024 * 1024;
+/** Total fixture-payload budget. Each election is lazy-loaded
+ *  on demand, so the per-page-load weight is bounded by the
+ *  largest single fixture (currently ~2.6 MB for ek2023). The
+ *  total only matters for cold-load over a slow link if the user
+ *  hops between every election. 15 MB leaves headroom for adding
+ *  EU + presidential candidate data. */
+const SIZE_BUDGET_BYTES = 15 * 1024 * 1024;
 
 /** Copy geometry files from `/data/` (source of truth) into
  *  `/public/data/` so Vite serves them at `/data/fi-*.json`. The
