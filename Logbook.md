@@ -344,6 +344,151 @@ files changed, build status, test count, commit hash, decisions, notes.
   submodule's loaders, generate `public/data/elections/{id}.json`
   for every catalog election, write the first vitest tests
   (`elections-source.test.ts`, `share-state.test.ts`).
+
+---
+
+## ENTRY Phase 1 (1+2/3) — submodule API mapped + live PxWeb prefetch landed 2026-05-03
+
+**What was done**
+
+*Discovery (originally Phase 1 1/3, folded into this commit since
+read-only exploration isn't a self-contained change worth its own
+commit.)*
+
+- Read `submodules/elections/src/{api,data}/` to map the API surface:
+  * `pxweb-client.ts` — `PxWebClient` class with rate limiting
+    (10 req / 10s), exposed as `pxwebClient` singleton
+  * `data/election-tables.ts` — registry of PxWeb table IDs per
+    `(election_type, year)` with schemas describing area_code formats
+    (`vp_ku_prefix`, `vp_prefix`, `six_digit`, `five_digit`)
+  * `data/loaders.ts` — high-level loaders. The one I need:
+    `loadPartyResults(year, areaId?, electionType)` returning
+    `{ rows: ElectionRecord[], tableId, cache_hit }`. Passing
+    `areaId=undefined` triggers the year-specific table fast path
+    (one query returns all area levels). Multi-year fallback tables
+    can hit the 403 cell-count limit.
+  * `data/normalizer.ts` — JSON-stat → flat `ElectionRecord` rows
+    with `area_level`, `area_id`, `area_name`, `party_id`, `party_name`,
+    `votes`, `vote_share`. PxWeb `party_id` codes shift between
+    elections; **`party_name` is the stable identifier** so I match
+    on that.
+  * `data/types.ts` — `ElectionType` ("parliamentary"|"municipal"|…),
+    `AreaLevel` ("vaalipiiri"|"kunta"|…), `ElectionRecord`
+- Confirmed `loaders.ts` and its transitive deps (api/, cache/,
+  data/) do **not** import `@modelcontextprotocol/sdk` — so I can
+  use the loader from `tsx` without installing the submodule's
+  `node_modules`.
+
+*Implementation (Phase 1 2/3)*
+
+- Wrote `scripts/build-fixtures.ts`:
+  * `TYPE_MAP`: my catalog's ElectionTypeId ("ek"|"kunta"|…) →
+    submodule's ElectionType ("parliamentary"|"municipal"|…)
+  * `canonicalizeAreaId`: strips `VP`/`HV`/`KU` prefixes so fixture
+    `regionId` matches the geometry's bare numeric codes
+    (`fi-vaalipiirit.json` `code`, `fi-kunnat.json` `id`)
+  * `partyKey(party_name, party_id)`: maps Finnish party names to
+    catalog slugs (`kok`, `sdp`, …). Smaller / historical parties
+    fall back to `_<sanitized-lowercase-name>` so identity is
+    preserved across years even when no slug exists.
+  * `aggregateRows`: groups rows by `(area_level, area_id)`, drops
+    `aanestysalue` (out of scope) and `koko_suomi` (UI computes), sums
+    party shares per slug, computes total votes, emits `RegionResult[]`
+  * `buildFixture`: per-election; presidential elections get
+    `status:"no_data"` (Phase 1.x); other failures (403, missing
+    table) caught and degraded gracefully
+  * Total budget check: warns if output > 10 MB
+- Updated `package.json` scripts:
+  * `build` chains `prefetch && typecheck && vite build`
+  * `typecheck` runs both `tsconfig.json` (strict, src/) and
+    `tsconfig.scripts.json` (looser, scripts/)
+- Added `tsconfig.scripts.json`: extends main config, but disables
+  `noUncheckedIndexedAccess` / `noUnusedLocals` / `noUnusedParameters`
+  so the submodule's own (looser) source code passes typecheck when
+  followed via the `import` from `scripts/build-fixtures.ts`
+- Removed `scripts` from main `tsconfig.json` `include`; added it to
+  `exclude` instead. Strict rules still apply to all of `src/`.
+- Updated `.gitignore` to add `cache-store.json` (submodule's PxWeb
+  response cache, written to project root by default) and `.cache/`
+
+**Live fetch results**
+
+Ran `npm run prefetch` against `pxdata.stat.fi`. 6/14 elections
+landed real data totalling 451.9 KB; 8/14 deferred to follow-up:
+
+| Election | Areas | Size | Notes |
+|---|---|---|---|
+| ek2023 | 322 (13 vp + 309 kunta) | 102 KB | ✓ |
+| ek2019 | 324 | 81 KB | ✓ |
+| kunta2025 | 304 | 51 KB | ✓ |
+| alue2025 | 312 (21 hv + 291 kunta) | 66 KB | ✓ |
+| alue2022 | 313 | 77 KB | ✓ |
+| eu2024 | 322 | 76 KB | ✓ |
+| ek2027 | — | — | future, no data |
+| kunta2021 | — | — | 403 on multi-year `14z7` |
+| eu2019 | — | — | 403 on multi-year `14gv` |
+| pres × 5 | — | — | candidate-aggregation deferred |
+
+Spot-check (Uusimaa 2023):
+- kok 26.2%, sdp 19.9%, ps 18.2%, rkp 8.7%, vihr 7.6%, kesk 4.8%,
+  vas 4.6%, kd 3.5% — matches Tilastokeskus published numbers
+- Other parties aggregate 6.6% (Liike Nyt, Liberaalipuolue, etc.,
+  preserved with `_` prefix)
+- Sum 100.1% (rounding within 0.5%)
+
+**Decisions**
+
+- **Match on `party_name`, not `party_id`.** PxWeb codes (`"01"`, `"02"`)
+  shift between tables; party names are stable. The matcher uses
+  word-boundary regex, e.g. `\bvihr/i` to catch "Vihr.", "Vihreät",
+  "Vihreä liitto" (the official short form is "Vihr." without 'e').
+- **Preserve smaller parties under `_<slug>`.** Fixture stays useful
+  for journalism work that cares about Liike Nyt or Piraattipuolue.
+- **Bare numeric `regionId`s.** Translation happens in the prefetch
+  script, so fixture consumers don't need to know about PxWeb's
+  `VP01`/`KU091` formats.
+- **Two tsconfig files** instead of building the submodule to dist/.
+  Importing the submodule's TS source directly is faster (no extra
+  build step) and `tsx` handles `.js` imports of `.ts` files. The
+  cost is the looser `tsconfig.scripts.json` for the script.
+- **Scripts excluded from strict typecheck**. Tradeoff: my own
+  scripts get less stringent rules. Acceptable because the script
+  is short and runs in CI; bugs would surface immediately.
+
+**Files changed**
+
+- New: `scripts/build-fixtures.ts` (full implementation),
+  `tsconfig.scripts.json`
+- Modified: `tsconfig.json` (scripts removed from include),
+  `package.json` (typecheck script now runs both configs;
+  build script now runs prefetch → typecheck → vite),
+  `.gitignore` (cache-store.json + .cache/ added)
+- New (gitignored): `public/data/elections/{id}.json` × 14,
+  `cache-store.json` (~19 MB — submodule's per-response cache)
+
+**Build status**
+
+- `npm run prefetch` — 6 with data, 8 no_data, 451.9 KB total
+- `npm run typecheck` — clean (both configs)
+- `npm run build` — clean, 1.33s
+- `npm test` — 0 tests, exits 0
+
+**Test count**
+
+- 0 / 0 (visualizer has no tests yet; coming in 3/3)
+
+**Commit hash**
+
+- Pending this session
+
+**Notes**
+
+- New BACKLOG items added (see file): 403 on multi-year tables,
+  presidential candidate-aggregation, turnout fetch, top-N
+  candidates per area.
+- Next: Phase 1 (3/3) — `LocalFixtureSource.listAreas` level/parentId
+  filter, port the `share-state.ts` codec from `prototype/app.jsx`,
+  write the first vitest tests.
 - Server team's deploy answer is captured verbatim in `BACKLOG.md`'s
   Phase 5 references; the Caddyfile snippet is in the implementation
   plan and will be committed under `deploy/Caddyfile.snippet` in

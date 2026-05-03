@@ -32,6 +32,30 @@ Format: priority emoji + short title + status note + date added.
   (breaking change, but we have no tests yet so it's safe to do
   before Phase 1). Address before adding any external collaborator
   to a dev session. *(added 2026-05-03)*
+- **`kunta2021` + `eu2019` fetch fails with 403 (cell-count limit)** —
+  these two elections fall back to the multi-year tables (`14z7`,
+  `14gv`) which exceed PxWeb's ~12 000-cell limit when fetching all
+  areas in one query. Fix: iterate per-vp/hv area (one query per
+  electoral district, ~13–21 queries instead of 1). Or wait for
+  Tilastokeskus to add year-specific tables. *(added 2026-05-03)*
+- **Presidential elections — candidate-aggregation deferred** —
+  `loadPartyResults` doesn't work for presidential because the
+  PxWeb tables only contain candidate rows; party identity comes
+  from each candidate's affiliation. Fix: add a presidential branch
+  to `scripts/build-fixtures.ts` that calls `loadCandidateResults`,
+  groups by candidate's party, and aggregates. Affects 5 elections:
+  pres2024 r1/r2, pres2018 r1, pres2012 r1/r2. *(added 2026-05-03)*
+- **Turnout per area is hard-coded to 0 in fixtures** — `loadPartyResults`
+  doesn't include eligible-voters. Need a separate fetch from the
+  `turnout_by_aanestysalue` table per election (or use the
+  voter-background table). UI should show "—" when turnout is 0
+  rather than rendering as 0%. *(added 2026-05-03)*
+- **Top-N candidates per area not yet in fixtures** — the prototype
+  ledger has a scrollable candidate list per region. Phase 3 needs
+  candidate data; will require `loadCandidateResults` per geographic
+  unit (vaalipiiri / hyvinvointialue / national for EU/pres) and
+  aggregating to top N per region. Adds significant fixture size —
+  budget ~2-5 MB across all elections. *(added 2026-05-03)*
 
 ---
 

@@ -5,11 +5,11 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "npm run prefetch && tsc --noEmit && vite build",
+    "build": "npm run prefetch && npm run typecheck && vite build",
     "prefetch": "tsx scripts/build-fixtures.ts",
     "preview": "vite preview",
     "test": "vitest run --passWithNoTests",
-    "typecheck": "tsc --noEmit",
+    "typecheck": "tsc --noEmit && tsc --noEmit -p tsconfig.scripts.json",
     "lint": "eslint ."
   },
   "dependencies": {
