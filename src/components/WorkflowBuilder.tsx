@@ -13,7 +13,7 @@
 import { useMemo, useState } from "react";
 
 import { FormulaComposer } from "./FormulaComposer";
-import { formulaSummary } from "../lib/formula";
+import { evalFormula, formulaSummary } from "../lib/formula";
 import type { SelectorRecord } from "../lib/composer-suggestions";
 import type { FormulaToken, Workflow } from "../types/elections";
 
@@ -47,7 +47,21 @@ export function WorkflowBuilder({
   );
 
   const hasUnboundSelectors = activeSelectors.length > 0;
-  const canSave = tokens.length > 0;
+
+  // Syntax check — run the evaluator against a no-op data lookup,
+  // then ignore the data-shaped errors that are expected at build
+  // time. Surfaces structural problems (empty / mismatched parens /
+  // trailing operator / two-values-in-a-row) inline.
+  const syntaxError = useMemo<string | null>(() => {
+    if (tokens.length === 0) return null;
+    const r = evalFormula(tokens, "__validate__", () => null);
+    if (r.ok) return null;
+    const ignorable = new Set(["unbound selector", "no data for chip"]);
+    if (ignorable.has(r.error)) return null;
+    return r.error;
+  }, [tokens]);
+
+  const canSave = tokens.length > 0 && syntaxError === null;
 
   const autoLabel = (): string => {
     const s = formulaSummary(tokens) || "kaava";
@@ -237,23 +251,37 @@ export function WorkflowBuilder({
           </div>
         ) : null}
 
-        {/* Hint about unbound selectors blocking preview */}
-        {hasUnboundSelectors ? (
-          <div
-            style={{
-              marginTop: 14,
-              fontSize: 12,
-              opacity: 0.7,
-              fontStyle: "italic",
-              padding: "8px 10px",
-              border: "1px dotted var(--hair)",
-              borderRadius: "var(--radius-box)",
-            }}
-          >
-            Esikatselu ei ole käytettävissä — kaavassa on valitsimia,
-            jotka päänäkymä sitoo arvoonsa.
-          </div>
-        ) : null}
+        {/* Inline status: syntax error, selector hint, or empty hint. */}
+        <div
+          style={{
+            marginTop: 14,
+            fontSize: 12,
+            padding: "8px 10px",
+            border: "1px dotted var(--hair)",
+            borderRadius: "var(--radius-box)",
+            background: syntaxError ? "rgba(196,58,58,0.08)" : "transparent",
+            color: syntaxError ? "#b94a2a" : "var(--ink)",
+            opacity: syntaxError ? 1 : 0.7,
+            fontStyle: syntaxError ? "normal" : "italic",
+          }}
+          role={syntaxError ? "alert" : undefined}
+        >
+          {syntaxError ? (
+            <>
+              <strong style={{ fontStyle: "normal" }}>⚠ Virhe:</strong>{" "}
+              {translateFormulaError(syntaxError)}
+            </>
+          ) : tokens.length === 0 ? (
+            <>Lisää termejä kaavaan tallentaaksesi.</>
+          ) : hasUnboundSelectors ? (
+            <>
+              Kaavassa on valitsimia ($A / $B / …) — päänäkymä sitoo ne
+              arvoonsa, kun työkalua käytetään.
+            </>
+          ) : (
+            <>Kaava on valmis tallennettavaksi.</>
+          )}
+        </div>
 
         <div style={{ borderTop: "1px dashed var(--hair)", margin: "14px 0" }} />
 
@@ -300,6 +328,32 @@ export function WorkflowBuilder({
       </div>
     </div>
   );
+}
+
+/** Map an evalFormula error string to a Finnish, user-friendly form. */
+function translateFormulaError(err: string): string {
+  switch (err) {
+    case "empty formula":
+      return "Kaava on tyhjä.";
+    case "two values in a row":
+      return "Kahden termin välistä puuttuu operaattori.";
+    case "operator needs a value before it":
+      return "Operaattorin edessä pitää olla termi.";
+    case "missing operator before (":
+      return "Sulun edessä pitää olla operaattori.";
+    case "empty parentheses":
+      return "Tyhjät sulut — lisää termi sulkujen sisään.";
+    case "mismatched (":
+      return "Sulkulauseke on epätäydellinen — lisää sulkeva sulku.";
+    case "mismatched )":
+      return "Sulkulauseke on epätäydellinen — poista ylimääräinen sulkeva sulku.";
+    case "formula ends on an operator":
+      return "Kaava päättyy operaattoriin — lisää viimeinen termi.";
+    case "candidate metric not yet supported":
+      return "Ehdokaspohjainen kaava ei ole vielä tuettu — käytä puoluetermejä.";
+    default:
+      return err;
+  }
 }
 
 function FieldLabel({

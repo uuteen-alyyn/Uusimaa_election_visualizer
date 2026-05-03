@@ -138,6 +138,21 @@ export function HierarchyMap({
       aria-activedescendant={focusedRegion ? `map-region-${focusedRegion.id}` : undefined}
       onKeyDown={onKeyDown}
     >
+      <defs>
+        {/* Crosshatch fill referenced by `NODATA_FILL` (color-ramps.ts).
+            Drawn at 6×6 px in the local viewBox; pattern transform
+            rotates it 45° so it reads as a hand-drawn diagonal. */}
+        <pattern
+          id="nodata-pattern"
+          patternUnits="userSpaceOnUse"
+          width="6"
+          height="6"
+          patternTransform="rotate(45)"
+        >
+          <rect width="6" height="6" fill="#e6e0cf" />
+          <rect width="1.4" height="6" fill="#c9c1ac" />
+        </pattern>
+      </defs>
       <g>
         {regions.map((r) => {
           const isSel = selected === r.id;

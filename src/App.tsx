@@ -792,7 +792,7 @@ export function App(): JSX.Element {
           aria-label={`Vaalituloskartta — ${electionLabel}`}
         >
           {dataLoading || !geometry ? (
-            <p style={{ opacity: 0.6 }}>Loading {electionLabel}…</p>
+            <LoadingStamp electionLabel={electionLabel} />
           ) : (
             <HierarchyMap
               geometry={geometry}
@@ -873,6 +873,37 @@ export function App(): JSX.Element {
 }
 
 /* ─── Param-row helpers ──────────────────────────────────── */
+
+function LoadingStamp({ electionLabel }: { electionLabel: string }): JSX.Element {
+  return (
+    <div
+      role="status"
+      aria-live="polite"
+      style={{
+        height: 640,
+        width: 520,
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+      }}
+    >
+      <div
+        style={{
+          border: "2px dashed rgba(0,0,0,0.35)",
+          padding: "16px 28px",
+          borderRadius: "var(--radius-card)",
+          fontFamily: "var(--font-display)",
+          fontSize: 24,
+          color: "rgba(0,0,0,0.55)",
+          transform: "rotate(-2deg)",
+          background: "rgba(251,249,244,0.7)",
+        }}
+      >
+        Ladataan {electionLabel}…
+      </div>
+    </div>
+  );
+}
 
 function ParamLabel({ children }: { children: React.ReactNode }): JSX.Element {
   return (

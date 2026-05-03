@@ -5,6 +5,7 @@ import type { RegionResult } from "../types/elections";
 import {
   fillForRegion,
   NEUTRAL_FILL,
+  NODATA_FILL,
   pickWinner,
   pointChange,
 } from "./color-ramps";
@@ -54,11 +55,11 @@ describe("fillForRegion (winner)", () => {
     );
   });
 
-  it("returns NEUTRAL_FILL on null result", () => {
-    expect(fillForRegion(null, "winner")).toBe(NEUTRAL_FILL);
+  it("returns NODATA_FILL crosshatch on null result", () => {
+    expect(fillForRegion(null, "winner")).toBe(NODATA_FILL);
   });
 
-  it("returns NEUTRAL_FILL when no party has any share", () => {
+  it("returns NEUTRAL_FILL when the result exists but no party has a share", () => {
     expect(fillForRegion(row({}), "winner")).toBe(NEUTRAL_FILL);
   });
 });
@@ -166,19 +167,19 @@ describe("fillForRegion (change)", () => {
     }
   });
 
-  it("returns NEUTRAL_FILL when refResult is missing", () => {
+  it("returns NODATA_FILL when refResult is missing (comparison unavailable)", () => {
     expect(
       fillForRegion(cur, "change", { focusParty: "kok", refResult: null }),
-    ).toBe(NEUTRAL_FILL);
+    ).toBe(NODATA_FILL);
   });
 
-  it("returns NEUTRAL_FILL when focusParty is null (no party to compare)", () => {
+  it("returns NODATA_FILL when focusParty is null (no party to compare)", () => {
     expect(fillForRegion(cur, "change", { focusParty: null, refResult: ref })).toBe(
-      NEUTRAL_FILL,
+      NODATA_FILL,
     );
   });
 
-  it("returns NEUTRAL_FILL when the party is missing from one side", () => {
+  it("returns NEUTRAL_FILL when the party is missing from one side (data exists but doesn't include party)", () => {
     expect(
       fillForRegion(cur, "change", {
         focusParty: "kok",

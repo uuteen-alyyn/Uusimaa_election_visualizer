@@ -339,12 +339,19 @@ against real data.
   - [/] Min text size 12px — body text 13–14px; small uppercase
         tracked labels (10–11px) kept since they're decorative
         chrome, not body content. Documented in ship audit.
-- [ ] Empty/loading/error states:
-  - [ ] Loading: sketchy "Loading…" stamp on map area; party-share
-        rows dashed
-  - [ ] No data for region/election: crosshatch `.nodata` fill,
-        tooltip "Ei tietoja"
-  - [ ] Invalid formula: inline error in builder; map keeps last valid
+- [x] Empty/loading/error states:
+  - [x] Loading: rotated dashed-border "Ladataan…" stamp on map
+        area; party-share rows already had a skeleton from
+        Phase 3 (3/4)
+  - [x] No data: crosshatch `<pattern id="nodata-pattern">`
+        defined in HierarchyMap, referenced via `NODATA_FILL`
+        from `color-ramps.ts`. Activates when current/ref
+        result is missing for a region.
+  - [x] Invalid formula: WorkflowBuilder shows an inline alert
+        (Finnish error text) on syntactic problems. The Save
+        button disables until the formula is structurally valid.
+        Map keeps the last valid coloring (formula errors don't
+        clear `formulaTokens`).
 - [ ] Lighthouse audit at country level + at one vp drill-down:
   - [ ] Perf > 90 acceptance criterion (README)
 - [ ] Pre-ship audit document `audits/SHIP_AUDIT_<date>.md` covering:

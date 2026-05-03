@@ -1581,3 +1581,102 @@ parties now read as real geographic patterns.
   crosshatch fill for regions with no fixture data, sketchy
   "Loading…" stamp on the map area, inline error in the
   formula builder.
+
+---
+
+## ENTRY Phase 4 (3/4) — empty / loading / error states 2026-05-03
+
+**What was done**
+
+- **No-data crosshatch.** `color-ramps.ts` exports
+  `NODATA_FILL = "url(#nodata-pattern)"`; `fillForRegion` returns
+  it whenever:
+  * mode ≠ "formula" and the region's `result` is null
+  * mode === "change" and either the ref result or focus party is
+    missing (previously these returned cream, which silently
+    misled — "no comparison available" is a different signal
+    from "this region had zero change")
+  `HierarchyMap` renders an SVG `<pattern>` in `<defs>`: 6×6 box,
+  rotated 45°, ink-light cream base with a 1.4px darker stripe.
+  Every region path that resolves to `NODATA_FILL` shows the
+  hand-drawn diagonal pattern.
+- **Loading stamp.** Replaced the bland "Loading…" text with a
+  rotated dashed-border stamp (`LoadingStamp` in `App.tsx`):
+  tilted -2°, dashed 2px ink-35% border, Caveat font, paper-tinted
+  background. Shows the live election label so the user knows
+  what's loading. `role="status" aria-live="polite"` so screen
+  readers announce progress.
+- **Inline formula error.** `WorkflowBuilder` runs the evaluator
+  against a no-op data lookup and surfaces structural errors
+  immediately. Data-shaped errors (`"unbound selector"`,
+  `"no data for chip"`) are filtered out — they're expected
+  while building. Errors translated to Finnish via
+  `translateFormulaError`:
+  * `"empty parentheses"` → `"Tyhjät sulut — lisää termi sulkujen sisään."`
+  * `"formula ends on an operator"` → `"Kaava päättyy operaattoriin — lisää viimeinen termi."`
+  * etc.
+  Save button disables until the formula is structurally valid
+  (`canSave = tokens.length > 0 && syntaxError === null`).
+- **Map keeps last valid coloring on formula errors.** If the
+  user opens the builder and edits an existing custom workflow
+  into an invalid state, the map still renders with the
+  previously-saved formula because `formulaTokens` only updates
+  on Save (which is gated on `canSave`).
+
+**Decisions**
+
+- **`NODATA_FILL` ≠ `NEUTRAL_FILL`.** Two distinct visual states:
+  crosshatch for "no data here" / cream for "real zero".
+  Important for change mode in particular, where `0pp` is a real
+  result and missing data is a different thing.
+- **Dummy lookup `() => null` for builder validation.** The
+  evaluator's structural checks (mismatched parens, two values,
+  etc.) run before any data lookup, so they're surfaced first.
+  Data errors after that are filtered as expected-during-build.
+- **Translate errors at the boundary, not inside formula.ts.**
+  The evaluator returns English error codes; the builder
+  translates to Finnish for display. Keeps `formula.ts`
+  data-only and easier to test.
+- **Skip a candidate-name input.** The composer's `who` slot
+  doesn't yet offer candidate suggestions (deferred to Phase
+  5+); accordingly the candidate-error message is included
+  defensively but isn't reachable from the current UI.
+
+**Files changed**
+
+- New: nothing
+- Modified: `src/App.tsx` (LoadingStamp component),
+  `src/lib/color-ramps.ts` (NODATA_FILL constant, change branch
+  returns crosshatch on missing ref/party),
+  `src/lib/color-ramps.test.ts` (tests updated for the new
+  contract), `src/components/HierarchyMap.tsx`
+  (`<defs><pattern>` crosshatch), `src/components/WorkflowBuilder.tsx`
+  (inline syntax error + translateFormulaError),
+  `Implementation_plan.md`, `Logbook.md` (this entry)
+
+**Build status**
+
+- `npm run typecheck` — clean
+- `npm run build` — clean, 1.68s, **72.06 KB gz JS** (was 71.31
+  → +0.7 KB gz)
+- `npm test` — 162 / 162 passed (existing tests updated for the
+  NODATA_FILL change; no new tests needed)
+
+**Test count**
+
+- 162 / 162
+
+**Commit hash**
+
+- Pending this session
+
+**Notes**
+
+- Manual smoke check pending: pick "Eduskuntavaalit 2027"
+  (no data) → all regions render crosshatch. Pick change
+  mode with VAS → Ahvenanmaa shows crosshatch (VAS doesn't
+  poll there). Open the formula composer, type a `(`
+  without a closing `)` → red inline alert, Save disabled.
+- Next: Phase 4 (4/4) — Lighthouse audit + ship-audit document
+  in `audits/SHIP_AUDIT_2026-05-03.md`. End of Phase 4 ≈ ready
+  to ship.

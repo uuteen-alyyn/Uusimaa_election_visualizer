@@ -17,8 +17,14 @@
 
 import type { PartyId, RegionResult, WorkflowKind } from "../types/elections";
 
-/** Fallback / loading / no-data fill (ink-light cream). Matches the
- *  prototype's `#eae3cf` neutral. */
+/** Fill for regions whose fixture data is missing — references the
+ *  `<pattern id="nodata-pattern">` defined in `HierarchyMap`. */
+export const NODATA_FILL = "url(#nodata-pattern)";
+
+/** Reserved cream colour for genuinely-neutral states (e.g. a
+ *  formula whose value falls in the middle of the diverging
+ *  ramp). Distinct from NODATA_FILL so the user can tell "real
+ *  zero" apart from "missing data" at a glance. */
 export const NEUTRAL_FILL = "#eae3cf";
 
 /** Optional per-mode parameters passed alongside the row. */
@@ -57,9 +63,11 @@ export function fillForRegion(
   mode: WorkflowKind,
   options: FillOptions = {},
 ): string {
-  // formula mode doesn't always need a `result` (the caller has
-  // already evaluated the formula); other modes do.
-  if (mode !== "formula" && !result) return NEUTRAL_FILL;
+  // For non-formula modes, missing data → crosshatch. Formula mode
+  // can still render a value (e.g. if the formula references a
+  // different election that did load); the formulaFill helper
+  // returns NEUTRAL_FILL on its own when the value is missing.
+  if (mode !== "formula" && !result) return NODATA_FILL;
 
   switch (mode) {
     case "winner":
@@ -72,13 +80,18 @@ export function fillForRegion(
       );
     case "votes":
       return votesFill(result!);
-    case "change":
+    case "change": {
+      // Change mode needs *both* current and ref data; otherwise
+      // crosshatch tells the user the comparison is unavailable
+      // for this region rather than misleading them with cream.
+      if (!options.refResult || !options.focusParty) return NODATA_FILL;
       return changeFill(
         result!,
-        options.refResult ?? null,
-        options.focusParty ?? null,
+        options.refResult,
+        options.focusParty,
         options.changeRange ?? null,
       );
+    }
     case "formula":
       return formulaFill(options.formulaValue ?? null, options.formulaRange ?? null);
   }
