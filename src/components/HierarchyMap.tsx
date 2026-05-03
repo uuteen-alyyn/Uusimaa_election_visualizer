@@ -89,16 +89,38 @@ export function HierarchyMap({
     return { regions: list, viewBox: KUNTA_VIEWBOX };
   }, [geometry, level, parentSlug, aaFeatures]);
 
-  // Smart-label rule: at vp level every region gets a label;
-  // at kunta level only the largest ~28% by area, plus selected/hovered.
+  // Smart-label rule:
+  //   vp:    every region gets a label (only 13–14 regions)
+  //   kunta: largest ~28% by area, plus selected/hovered
+  //   aa:    all when count ≤ 25; otherwise hide persistent labels
+  //          (Helsinki has 167 aa — they collide on a sqrt-grid).
+  //          Selected/hovered still show via the hover-bg branch.
   const labelable = useMemo(() => {
-    if (level !== "kunta") return new Set(regions.map((r) => r.id));
-    const sorted = [...regions].sort((a, b) => (b.area || 0) - (a.area || 0));
-    const keepN = Math.max(4, Math.ceil(sorted.length * 0.28));
-    return new Set(sorted.slice(0, keepN).map((r) => r.id));
+    if (level === "vp") return new Set(regions.map((r) => r.id));
+    if (level === "kunta") {
+      const sorted = [...regions].sort((a, b) => (b.area || 0) - (a.area || 0));
+      const keepN = Math.max(4, Math.ceil(sorted.length * 0.28));
+      return new Set(sorted.slice(0, keepN).map((r) => r.id));
+    }
+    // aa
+    if (regions.length <= 25) return new Set(regions.map((r) => r.id));
+    return new Set<string>();
   }, [regions, level]);
 
-  const labelSize = level === "kunta" ? 8.5 : 11;
+  const labelSize = level === "aa" ? 8 : level === "kunta" ? 8.5 : 11;
+
+  /** Shorten the on-map label so it fits inside a small grid cell.
+   *  The full label (e.g. "091 001A Kruununhaka A") is preserved
+   *  for tooltips and screen readers via `getTooltip`; on the map
+   *  itself we render just the area name part. */
+  const shortLabelFor = (raw: string): string => {
+    if (level !== "aa") return raw;
+    // aa labels arrive as "<kuntakoodi> <aa-num>[suffix] <name>".
+    // Drop the first two whitespace-separated tokens.
+    const parts = raw.split(/\s+/);
+    if (parts.length <= 2) return raw;
+    return parts.slice(2).join(" ");
+  };
 
   /* Keyboard navigation: when the SVG has focus, Tab/→/↓ cycle to
    *  the next sibling region, Shift+Tab/←/↑ cycle backwards, Enter
@@ -207,13 +229,14 @@ export function HierarchyMap({
         const isSel = selected === r.id;
         const isHover = hoverId === r.id;
         const showHoverBg = isHover && !labelable.has(r.id);
+        const text = shortLabelFor(r.label);
         return (
           <g key={r.id + "-t"} style={{ pointerEvents: "none" }}>
             {showHoverBg ? (
               <rect
-                x={r.cx - r.label.length * 3}
+                x={r.cx - text.length * 3}
                 y={r.cy - 7}
-                width={r.label.length * 6}
+                width={text.length * 6}
                 height={13}
                 rx={2}
                 fill="rgba(251, 249, 244, 0.9)"
@@ -231,7 +254,7 @@ export function HierarchyMap({
               fill="var(--ink)"
               style={{ fontWeight: isSel ? 700 : 400 }}
             >
-              {r.label}
+              {text}
             </text>
           </g>
         );

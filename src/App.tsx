@@ -207,6 +207,35 @@ function useFormulaResults(
   );
 }
 
+/** Pick the most recent same-type election (with data) that comes
+ *  *before* the given election. Used to auto-default the change
+ *  mode's reference election when the user toggles into it. */
+function findPreviousElectionOfSameType(
+  currentId: ElectionId,
+  withData: ReadonlySet<ElectionId> | null,
+): ElectionId | null {
+  const cur = ELECTION_BY_ID[currentId];
+  if (!cur) return null;
+  const candidates = ELECTIONS.filter((e) => {
+    if (e.id === cur.id) return false;
+    if (e.typeId !== cur.typeId) return false;
+    if (withData && !withData.has(e.id)) return false;
+    if (e.year < cur.year) return true;
+    if (e.year === cur.year) {
+      // Same year — only relevant for presidential rounds (round 1
+      // is "previous" to round 2).
+      return (e.round ?? 1) < (cur.round ?? 1);
+    }
+    return false;
+  });
+  if (candidates.length === 0) return null;
+  candidates.sort((a, b) => {
+    if (b.year !== a.year) return b.year - a.year;
+    return (b.round ?? 1) - (a.round ?? 1);
+  });
+  return candidates[0]?.id ?? null;
+}
+
 /* ─── Auto-default selector bindings ────────────────────────── */
 
 /** Fill in sensible defaults for any selector without an existing
@@ -382,18 +411,28 @@ export function App(): JSX.Element {
 
       // Election persistence: when the user toggles between modes,
       // they expect to stay on whatever election they were viewing.
-      // Only override the election when the current one has no data
-      // (probed via `electionsWithData`); when probing hasn't
-      // finished, keep the user's choice.
-      setElection((prev) => {
-        if (electionsWithData == null) return prev;
-        if (electionsWithData.has(prev)) return prev;
-        return w.election;
-      });
+      // Only override the election when the current one has no data.
+      const nextElection =
+        electionsWithData == null
+          ? election
+          : electionsWithData.has(election)
+            ? election
+            : w.election;
+      setElection(nextElection);
 
-      // Reference election follows the same persistence rule when
-      // the new workflow specifies one.
-      if (w.refElection) {
+      // Reference election: for change mode, auto-pick the
+      // previous-of-same-type so the comparison is meaningful
+      // (kunta2025 → kunta2021, eu2024 → eu2019, etc.) instead
+      // of always falling through to the built-in's hardcoded
+      // ek2019. User can still override via the picker.
+      if (w.kind === "change") {
+        const autoRef = findPreviousElectionOfSameType(
+          nextElection,
+          electionsWithData,
+        );
+        if (autoRef) setRefElection(autoRef);
+        else if (w.refElection) setRefElection(w.refElection);
+      } else if (w.refElection) {
         const target = w.refElection;
         setRefElection((prev) => {
           if (electionsWithData == null) return prev;
@@ -419,7 +458,7 @@ export function App(): JSX.Element {
       }
       setAppliedWorkflowId(w.builtin ? null : w.id);
     },
-    [electionsWithData],
+    [electionsWithData, election],
   );
 
   const saveWorkflow = useCallback((wf: Workflow): void => {
