@@ -35,6 +35,11 @@ import type { FixtureFile } from "../src/data/elections-source";
 
 import { loadPartyResults } from "../submodules/elections/src/data/loaders";
 import { pxwebClient } from "../submodules/elections/src/api/pxweb-client";
+import { normalizePartyTable } from "../submodules/elections/src/data/normalizer";
+import {
+  findPartyTableForType,
+  getDatabasePath,
+} from "../submodules/elections/src/data/election-tables";
 import type {
   ElectionRecord,
   ElectionType,
@@ -52,11 +57,34 @@ const TYPE_MAP: Record<ElectionTypeId, ElectionType> = {
 
 /* ─── Area-id translation (PxWeb → geometry) ────────────────── */
 
-/** Strip VP/HV/KU prefixes so fixtures use bare numeric codes that
- *  match `data/fi-vaalipiirit.json` `code` and `data/fi-kunnat.json` `id`. */
+/** Normalise PxWeb area codes to our fixture form.
+ *
+ *  Year-specific tables (13t2 / 14vm / 14h2) use the `vp_ku_prefix`
+ *  format with letters: `VP01`, `KU091`, `HV02`. Strip the prefix.
+ *
+ *  Multi-year tables — used for kunta2021 (14z7) and eu2019 (14gv)
+ *  via the year-filtered fallback — use numeric-only codes:
+ *
+ *  - 6-digit (municipal, parliamentary): `<vp:2><sub:1><kuntakoodi:3>`.
+ *    Aggregate rows end in `0000` and represent the vp; everything
+ *    else is a kunta and the last 3 digits are the kuntakoodi we
+ *    have in `data/fi-kunnat.json`.
+ *  - 5-digit (EU): `<vp:2><kuntakoodi:3>`. Last 3 digits = `000`
+ *    means vp aggregate; otherwise = kuntakoodi.
+ *
+ *  Output: 2-digit string for vp/hv, 3-digit kuntakoodi for kunta. */
 function canonicalizeAreaId(rawId: string): string {
   if (rawId.startsWith("VP") || rawId.startsWith("HV")) return rawId.slice(2);
   if (rawId.startsWith("KU")) return rawId.slice(2);
+
+  if (/^\d{6}$/.test(rawId)) {
+    if (rawId.endsWith("0000")) return rawId.slice(0, 2);
+    return rawId.slice(-3);
+  }
+  if (/^\d{5}$/.test(rawId)) {
+    if (rawId.endsWith("000")) return rawId.slice(0, 2);
+    return rawId.slice(-3);
+  }
   return rawId;
 }
 
@@ -198,19 +226,98 @@ async function buildFixture(
     return buildPresidentialFixture(electionId, year, round);
   }
 
+  // Try the submodule's loader first. For multi-year tables that
+  // don't have a year-specific equivalent (kunta2021's 14z7,
+  // eu2019's 14gv) it fetches *all years* in one query and 403s
+  // on the cell-count limit. Catch that and fall back to a
+  // year-filtered direct query.
+  let rows: ElectionRecord[];
   try {
     const res = await loadPartyResults(year, undefined, electionType);
-    const areas = aggregateRows(res.rows, electionId);
-    if (areas.length === 0) {
-      console.warn(`[prefetch]   ${electionId}: 0 areas after aggregation → status:no_data`);
-      return { electionId, status: "no_data" };
-    }
-    return { electionId, areas };
+    rows = res.rows;
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
-    console.warn(`[prefetch]   ${electionId}: ${msg} → status:no_data`);
+    if (!msg.includes("403")) {
+      console.warn(`[prefetch]   ${electionId}: ${msg} → status:no_data`);
+      return { electionId, status: "no_data" };
+    }
+    console.warn(`[prefetch]   ${electionId}: 403 on multi-year fetch — retrying year-filtered`);
+    try {
+      rows = await loadPartyResultsYearFiltered(year, electionType);
+    } catch (e2) {
+      const msg2 = e2 instanceof Error ? e2.message : String(e2);
+      console.warn(`[prefetch]   ${electionId}: year-filtered retry failed: ${msg2} → status:no_data`);
+      return { electionId, status: "no_data" };
+    }
+  }
+
+  const areas = aggregateRows(rows, electionId);
+  if (areas.length === 0) {
+    console.warn(`[prefetch]   ${electionId}: 0 areas after aggregation → status:no_data`);
     return { electionId, status: "no_data" };
   }
+  return { electionId, areas };
+}
+
+/** Direct query that always passes a Vuosi filter, regardless of
+ *  whether the table is multi-year. The submodule's loader skips
+ *  the year filter for multi-year tables (so the cache holds the
+ *  full multi-year response), which makes all-areas queries 403.
+ *  Filtering by year drops cell count enough to stay under the
+ *  ~12,000-cell limit. */
+async function loadPartyResultsYearFiltered(
+  year: number,
+  electionType: ElectionType,
+): Promise<ElectionRecord[]> {
+  const tables = findPartyTableForType(electionType);
+  if (!tables?.party_by_kunta || !tables.party_schema) {
+    throw new Error(`No party table for ${electionType}`);
+  }
+  const schema = tables.party_schema;
+  const dbPath = getDatabasePath(tables);
+  const tableId = tables.party_by_kunta;
+  const metadata = await pxwebClient.getTableMetadata(dbPath, tableId);
+
+  type FilterItem = {
+    code: string;
+    selection: { filter: "item" | "all"; values: string[] };
+  };
+  const filters: FilterItem[] = [];
+
+  if (metadata.variables.some((v) => v.code === "Vuosi")) {
+    filters.push({
+      code: "Vuosi",
+      selection: { filter: "item", values: [String(year)] },
+    });
+  }
+  if (schema.gender_var && schema.gender_total_code) {
+    filters.push({
+      code: schema.gender_var,
+      selection: { filter: "item", values: [schema.gender_total_code] },
+    });
+  }
+  filters.push({
+    code: schema.party_var,
+    selection: { filter: "all", values: ["*"] },
+  });
+  filters.push({
+    code: schema.area_var,
+    selection: { filter: "all", values: ["*"] },
+  });
+  filters.push({
+    code: schema.measure_var,
+    selection: {
+      filter: "item",
+      values: [schema.votes_code, schema.share_code],
+    },
+  });
+
+  const response = await pxwebClient.queryTable(
+    dbPath,
+    tableId,
+    { query: filters, response: { format: "json" as const } },
+  );
+  return normalizePartyTable(response, metadata, year, electionType, schema);
 }
 
 /** Hardcoded candidate-id → party-slug mapping for table 14db.
@@ -255,14 +362,30 @@ const PRESIDENTIAL_CANDIDATE_PARTY: Record<string, string> = {
 };
 
 /** Convert PxWeb 6-digit vp code (used by pres table 14db) to our
- *  canonical 2-digit form. `010000` → `"01"`. Old pre-2013 vp
- *  codes (`810000`, `910000`, …) are returned as null so they're
- *  skipped — they don't map onto our 2026 geometry. */
+ *  canonical 2-digit form. `010000` → `"01"`.
+ *
+ *  Handles the 2013 vp reform by aggregating pre-2013 codes onto
+ *  their post-2013 successors:
+ *  - `810000` Kymi          → `08` Kaakkois-Suomi (renamed only)
+ *  - `820000` Etelä-Savo    →
+ *  - `910000` Pohjois-Savo  → `09` Savo-Karjala (3-vp merger)
+ *  - `920000` Pohjois-Karjala →
+ *
+ *  Multiple old vps mapping to the same canonical naturally
+ *  aggregate downstream (rows are grouped by canonical id, then
+ *  votes summed by candidate-party). */
+const PRE_2013_VP_REMAP: Record<string, string> = {
+  "810000": "08",
+  "820000": "09",
+  "910000": "09",
+  "920000": "09",
+};
+
 function presVpCodeToCanonical(code: string): string | null {
   if (!/^\d{6}$/.test(code)) return null;
+  if (PRE_2013_VP_REMAP[code]) return PRE_2013_VP_REMAP[code]!;
   const prefix = code.slice(0, 2);
-  // Only the modern 13-vp set (01-13) maps cleanly onto our geometry.
-  if (parseInt(prefix, 10) > 13) return null;
+  if (parseInt(prefix, 10) > 13) return null; // unrecognised legacy code
   return prefix;
 }
 
@@ -285,13 +408,6 @@ async function buildPresidentialFixture(
   year: number,
   round: 1 | 2,
 ): Promise<FixtureFile> {
-  if (year < 2018) {
-    console.warn(
-      `[prefetch]   ${electionId}: pre-2013 vp boundaries don't match 2026 geometry → status:no_data`,
-    );
-    return { electionId, status: "no_data" };
-  }
-
   try {
     const resp = await pxwebClient.queryTable(
       "StatFin",
