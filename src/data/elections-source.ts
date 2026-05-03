@@ -90,14 +90,28 @@ export class LocalFixtureSource implements ElectionDataSource {
   }
 
   async listAreas(
-    _level: AreaLevel,
+    level: AreaLevel,
     _parentId: RegionId | null,
     electionId: ElectionId,
   ): Promise<RegionResult[]> {
     const fixture = await this.load(electionId);
     if (fixture.status === "no_data" || !fixture.areas) return [];
-    // Phase 1 will add a level/parentId filter on top of the
-    // full areas list once the fixture shape is fleshed out.
-    return fixture.areas;
+
+    // Filter by region-id pattern (set by `scripts/build-fixtures.ts`):
+    //   2-digit numeric → vaalipiiri or hyvinvointialue
+    //   3-digit numeric → kunta
+    // Phase 2 wires `parentId` once geometry has the vp/hv ↔ kunta
+    // mapping; for now we return all areas at the requested level
+    // and let `HierarchyMap` intersect with geometry.
+    if (level === "vp") {
+      return fixture.areas.filter((a) => /^\d{2}$/.test(a.regionId));
+    }
+    if (level === "kunta") {
+      return fixture.areas.filter((a) => /^\d{3}$/.test(a.regionId));
+    }
+    // "maa" and "aa" levels: visualizer doesn't render fixture areas
+    // directly at those levels (country sums computed by UI;
+    // äänestysalueet out of scope).
+    return [];
   }
 }

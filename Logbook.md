@@ -489,6 +489,96 @@ Spot-check (Uusimaa 2023):
 - Next: Phase 1 (3/3) — `LocalFixtureSource.listAreas` level/parentId
   filter, port the `share-state.ts` codec from `prototype/app.jsx`,
   write the first vitest tests.
+
+---
+
+## ENTRY Phase 1 (3/3) — share-state codec + first tests; closes Phase 1 2026-05-03
+
+**What was done**
+
+- `LocalFixtureSource.listAreas` now filters by `level`:
+  * `level === "vp"` → 2-digit ids (vaalipiiri or hyvinvointialue)
+  * `level === "kunta"` → 3-digit kuntakoodi
+  * `level === "maa" | "aa"` → empty array
+  * `parentId` is accepted but unused — the parent-of relationship
+    requires vp/hv ↔ kunta mapping from geometry, deferred to Phase 2
+- `src/lib/share-state.ts`: ported the URL-hash codec from
+  `prototype/app.jsx:7-24`. Preserves the prototype's `#v=<base64>`
+  format byte-for-byte so existing share links still round-trip.
+  * `encodeShareState` / `decodeShareState` — pure base64 codec
+  * `readShareStateFromHash` / `writeShareStateToHash` — hash-string
+    plumbing
+  * UTF-8 handled via `TextEncoder` / `TextDecoder` (modern
+    equivalent of the prototype's deprecated `escape`/`unescape`
+    + `btoa`/`atob` chain)
+- `src/lib/share-state.test.ts`: 11 tests covering round-trip across
+  every state shape (winner / support / formula with selectors),
+  Finnish character preservation (ä/ö/å in candidate names), all
+  decode error paths (empty / malformed base64 / valid base64 of
+  non-JSON), and `readShareStateFromHash` extraction with the `v=`
+  segment in any position.
+- `src/data/elections-source.test.ts`: 11 tests covering
+  `getRegionResult` happy path + 4 error paths (missing region,
+  no_data fixture, HTTP 4xx, network throw),
+  `listAreas` filtering across all 4 `AreaLevel`s, and the
+  per-electionId memoization (including caching of no_data
+  responses to avoid retry loops).
+
+**Decisions**
+
+- **Modern UTF-8 → base64 instead of deprecated `escape`/`unescape`.**
+  Same byte output for all valid inputs; preserves share-link
+  compatibility while passing TypeScript's strict mode.
+- **Cache no_data responses too.** A 404'd fixture for a future
+  election shouldn't keep re-hitting the network on every component
+  mount. Test verifies `fetch` is called exactly once even after
+  multiple calls.
+- **Test files live next to source** (`src/lib/share-state.test.ts`
+  vs `src/lib/share-state.ts`). Vitest's default discovery picks
+  them up. Easier to find than a separate `tests/` tree.
+- **Used `globalThis.fetch = vi.fn()`** rather than `vi.stubGlobal`
+  for fetch mocking — works without extra vitest config and is
+  restored automatically by `vi.restoreAllMocks()` in `beforeEach`.
+
+**Files changed**
+
+- New: `src/lib/share-state.ts`, `src/lib/share-state.test.ts`,
+  `src/data/elections-source.test.ts`
+- Modified: `src/data/elections-source.ts` (`listAreas` level filter),
+  `Implementation_plan.md` (Phase 1 closes; tasks `[x]`),
+  `Logbook.md` (this entry)
+
+**Build status**
+
+- `npm run typecheck` — clean (both configs)
+- `npm run build` — clean, 1.30s, 46 KB gz JS, 1.53 KB gz CSS
+- `npm test` — **22 / 22 passed** (2 test files)
+
+**Test count**
+
+- 22 / 22 (11 share-state + 11 elections-source)
+
+**Commit hash**
+
+- Pending this session
+
+**Notes**
+
+- **Phase 1 complete.** The data layer contract is real: prefetch
+  populates `public/data/elections/{id}.json` for 6 elections with
+  real Tilastokeskus data; `LocalFixtureSource` reads them with the
+  level filter; share links round-trip. Ready for Phase 2 to put
+  this on the map.
+- **Phase 1 acceptance check** vs the plan's acceptance test:
+  * `npm run prefetch` populates fixtures ✓
+  * `LocalFixtureSource.getRegionResult("uus", "ek2023")` → real
+    `RegionResult` with non-zero shares summing ~100 ✓ (note: id is
+    `"02"` not `"uus"` — geometry slug-vs-code reconciled in Phase 2)
+  * All vitest tests pass ✓
+  * `npm run build` exits 0 ✓
+- Next: Phase 2 — geometry + map. First real-data milestone:
+  render eduskuntavaalit 2023 winners across all 13 vaalipiirit
+  with real boundaries.
 - Server team's deploy answer is captured verbatim in `BACKLOG.md`'s
   Phase 5 references; the Caddyfile snippet is in the implementation
   plan and will be committed under `deploy/Caddyfile.snippet` in

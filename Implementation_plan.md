@@ -167,16 +167,18 @@ RegionResult` against fixtures.
         this; cached at `./cache-store.json`, gitignored)
 - [x] Wire `npm run prefetch` → `tsx scripts/build-fixtures.ts`
 - [x] Wire `npm run build` → `prefetch && typecheck && vite build`
-- [ ] `LocalFixtureSource.getRegionResult(regionId, electionId)` —
+- [x] `LocalFixtureSource.getRegionResult(regionId, electionId)` —
       lazy fetch + memoize per electionId
-- [ ] `LocalFixtureSource.listAreas(level, parentId, electionId)` —
+- [x] `LocalFixtureSource.listAreas(level, parentId, electionId)` —
       bulk lookup needed for map coloring
-- [ ] Vitest tests:
-  - [ ] `elections-source.test.ts`: known fixture round-trips
-        (mock fetch with sample JSON)
-  - [ ] `share-state.test.ts`: encode/decode round-trip
-- [ ] CI artifact size check: warn if `public/data/elections/` exceeds
-      ~10MB (current rough budget)
+      *(parentId filter deferred to Phase 2 — needs vp/hv ↔ kunta
+      mapping from geometry)*
+- [x] Vitest tests:
+  - [x] `elections-source.test.ts`: known fixture round-trips
+        (mock fetch with sample JSON) — 11 tests
+  - [x] `share-state.test.ts`: encode/decode round-trip — 11 tests
+- [x] CI artifact size check: warn if `public/data/elections/` exceeds
+      ~10MB (current rough budget) *(in `scripts/build-fixtures.ts`)*
 
 **Acceptance test:**
 - `npm run prefetch` populates `public/data/elections/` with valid
