@@ -13,13 +13,15 @@
  *   - Ledger formula-value block when a formula is active
  */
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { Crumb } from "./components/Crumb";
+import { DownloadMenu } from "./components/DownloadMenu";
 import { ElectionPicker } from "./components/ElectionPicker";
 import { HierarchyMap, type DisplayLevel } from "./components/HierarchyMap";
 import { Ledger, type LedgerLevelLabel } from "./components/Ledger";
 import { PartyPicker } from "./components/PartyPicker";
+import { ShareLinkPill } from "./components/ShareLinkPill";
 import { WorkflowBar } from "./components/WorkflowBar";
 import { WorkflowBuilder } from "./components/WorkflowBuilder";
 
@@ -35,6 +37,11 @@ import { loadGeometry, type ProjectedGeometry } from "./data/geometry";
 
 import { aggregateRegions } from "./lib/aggregate";
 import { fillForRegion } from "./lib/color-ramps";
+import {
+  downloadDashboardPng,
+  downloadMapPng,
+  downloadMapSvg,
+} from "./lib/exports";
 import {
   evalFormula,
   formulaRange as computeFormulaRange,
@@ -267,6 +274,18 @@ export function App(): JSX.Element {
   const [level, setLevel] = useState<DisplayLevel>("vp");
   const [parentSlug, setParentSlug] = useState<string | null>(null);
   const [selected, setSelected] = useState<string | null>(null);
+
+  // Refs for export targets.
+  const mapAreaRef = useRef<HTMLDivElement | null>(null);
+  const dashboardRef = useRef<HTMLDivElement | null>(null);
+
+  // Toast for share-link feedback.
+  const [toast, setToast] = useState<string | null>(null);
+  useEffect(() => {
+    if (!toast) return undefined;
+    const id = window.setTimeout(() => setToast(null), 2000);
+    return () => window.clearTimeout(id);
+  }, [toast]);
 
   // Geometry (one-time).
   useEffect(() => {
@@ -510,6 +529,46 @@ export function App(): JSX.Element {
     setSelected(null);
   }, []);
 
+  /* ─── Export handlers ───────────────────────────────────── */
+
+  const exportSvg = useCallback(() => {
+    const svg = mapAreaRef.current?.querySelector("svg");
+    if (!svg) {
+      setToast("Karttaa ei voitu ladata");
+      return;
+    }
+    try {
+      downloadMapSvg(svg);
+      setToast("Kartta ladattu (SVG)");
+    } catch {
+      setToast("Lataus epäonnistui");
+    }
+  }, []);
+
+  const exportPng = useCallback(() => {
+    const svg = mapAreaRef.current?.querySelector("svg");
+    if (!svg) {
+      setToast("Karttaa ei voitu ladata");
+      return;
+    }
+    void downloadMapPng(svg).then(
+      () => setToast("Kartta ladattu (PNG)"),
+      () => setToast("Lataus epäonnistui"),
+    );
+  }, []);
+
+  const exportDashboard = useCallback(() => {
+    const node = dashboardRef.current;
+    if (!node) {
+      setToast("Näkymää ei voitu ladata");
+      return;
+    }
+    void downloadDashboardPng(node).then(
+      () => setToast("Näkymä ladattu (PNG)"),
+      () => setToast("Lataus epäonnistui"),
+    );
+  }, []);
+
   const parentVp =
     level === "kunta" && parentSlug && geometry
       ? geometry.vaalipiirit.find((v) => v.slug === parentSlug)
@@ -603,10 +662,28 @@ export function App(): JSX.Element {
   const activeSelectors = listSelectors(formulaTokens);
 
   return (
-    <div className="page">
+    <div className="page" ref={dashboardRef}>
       <header>
         <h1>Vaalit — tulosvisualisointi</h1>
-        <Crumb home="Koko Suomi" current={parentVp?.label ?? null} onHome={drillUp} />
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: 10,
+            flexWrap: "wrap",
+          }}
+        >
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <Crumb home="Koko Suomi" current={parentVp?.label ?? null} onHome={drillUp} />
+          </div>
+          <ShareLinkPill onToast={setToast} />
+          <DownloadMenu
+            onMapSvg={exportSvg}
+            onMapPng={exportPng}
+            onDashboardPng={exportDashboard}
+            disabled={dataLoading}
+          />
+        </div>
       </header>
 
       <section style={{ display: "flex", flexDirection: "column", gap: 8 }}>
@@ -703,7 +780,7 @@ export function App(): JSX.Element {
       </section>
 
       <main className="dashboard">
-        <div className="dashboard-map">
+        <div className="dashboard-map" ref={mapAreaRef}>
           {dataLoading || !geometry ? (
             <p style={{ opacity: 0.6 }}>Loading {electionLabel}…</p>
           ) : (
@@ -758,6 +835,29 @@ export function App(): JSX.Element {
           Tilastointialueet © Tilastokeskus, CC BY 4.0
         </small>
       </footer>
+
+      {toast ? (
+        <div
+          role="status"
+          aria-live="polite"
+          style={{
+            position: "fixed",
+            left: "50%",
+            bottom: 30,
+            transform: "translateX(-50%)",
+            background: "var(--ink)",
+            color: "var(--paper)",
+            padding: "10px 16px",
+            borderRadius: "var(--radius-box)",
+            fontFamily: "var(--font-body)",
+            fontSize: 13,
+            zIndex: 1000,
+            boxShadow: "var(--shadow-default)",
+          }}
+        >
+          {toast}
+        </div>
+      ) : null}
     </div>
   );
 }

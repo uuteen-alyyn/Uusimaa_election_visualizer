@@ -319,13 +319,13 @@ against real data.
 
 **Goal:** feature-complete and audited; ready to ship.
 
-- [ ] SVG download (map only): port from
-      [prototype/wf-variants.jsx:311](prototype/wf-variants.jsx#L311)
-- [ ] PNG download (map only): canvas rasterize via Image element
-- [ ] PNG download (whole dashboard): `html-to-image` over artboard ref
-- [ ] Footer attribution:
-      "Lähde: Tilastokeskus, vaalitilastot (CC BY 4.0) · Tilastointialueet
-      © Tilastokeskus, CC BY 4.0"
+- [x] SVG download (map only) — `lib/exports.ts` `downloadMapSvg`,
+      inlines design-token CSS so the file renders standalone
+- [x] PNG download (map only) — `downloadMapPng` rasterises the
+      SVG via canvas at 2× scale on a paper-coloured background
+- [x] PNG download (whole dashboard) — `downloadDashboardPng`
+      via `html-to-image` over the dashboard-ref subtree
+- [x] Footer attribution: already in place since Phase 2
 - [ ] Accessibility:
   - [ ] Tab cycles map regions (port from prototype)
   - [ ] `:focus-visible` shows region tooltip (currently hover-only)

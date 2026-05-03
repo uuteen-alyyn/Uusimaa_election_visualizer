@@ -1395,3 +1395,94 @@ parties now read as real geographic patterns.
 **Commit hash**
 
 - Pending this session
+
+---
+
+## ENTRY Phase 4 (1/4) — exports + share link 2026-05-03
+
+**What was done**
+
+- `src/lib/exports.ts` — pure download helpers:
+  * `timestamp()` — ISO-derived filename slug
+  * `inlineCssTokens(cs)` — read every needed `--var` from
+    `documentElement` and emit a `:root{}` declaration so the
+    standalone SVG renders identically off the host page
+  * `svgToXml(svg)` — clones, inlines CSS, serialises
+  * `downloadMapSvg(svg)` — Blob → `<a download>`
+  * `downloadMapPng(svg, scale=2)` — SVG → Image → canvas → PNG
+    Blob on a paper-coloured background; revokes the SVG URL
+    in a `finally`
+  * `downloadDashboardPng(node)` — `html-to-image` `toPng` at
+    2× pixelRatio with `cacheBust` and the `--page-bg` colour
+- `src/components/DownloadMenu.tsx` — sketchy "↓ Lataa" pill
+  with a dropdown:
+  * Map PNG / Map SVG
+  * Whole-view PNG (the dashboard subtree)
+  * Disables itself while data is still loading
+  * Closes on outside click; keyboard-activatable
+- `src/components/ShareLinkPill.tsx` — "↗ Jaa linkki" pill,
+  copies `window.location.href` (which already carries the full
+  state via the `share-state.ts` codec). Falls back gracefully
+  when `navigator.clipboard` is unavailable.
+- `App.tsx`:
+  * `mapAreaRef` (HTMLDivElement, `querySelector("svg")` to
+    find the live SVG) and `dashboardRef` (the whole `.page`
+    subtree)
+  * `toast` state + `useEffect` auto-clear after 2s; toast
+    surface rendered as a fixed-position pill at the bottom
+  * Top header now: title row, then a Crumb / ShareLink /
+    DownloadMenu row
+  * `exportSvg` / `exportPng` / `exportDashboard` callbacks
+    handle errors via the toast
+- 4 unit tests for `timestamp` + `inlineCssTokens` (the pure
+  bits — PNG canvas roundtrips need a real browser DOM and
+  are validated manually).
+
+**Decisions**
+
+- **Inline a comprehensive list of CSS vars in the exported SVG.**
+  The map references `--ink`, `--paper-2`, all 8 party colours,
+  every ramp shade. Bundling them all into the standalone SVG
+  costs ~400 bytes and avoids having to know which the current
+  view uses.
+- **Toast for share-copy + every export action.** Without a
+  toast, the user can't tell that "Jaa linkki" actually copied
+  (browsers silently swallow `clipboard.writeText` errors when
+  the page loses focus during the click).
+- **`html-to-image` instead of rendering the dashboard via SVG.**
+  We could've SVG-foreignObject'd the whole dashboard, but
+  text-on-image rendering is browser-flaky in that path, and
+  `html-to-image` already handles font-loading + cache-busting.
+
+**Files changed**
+
+- New: `src/lib/exports.ts`, `src/lib/exports.test.ts`,
+  `src/components/DownloadMenu.tsx`,
+  `src/components/ShareLinkPill.tsx`
+- Modified: `src/App.tsx` (refs, top-bar, export handlers,
+  toast), `Implementation_plan.md`, `Logbook.md` (this entry)
+
+**Build status**
+
+- `npm run typecheck` — clean
+- `npm run build` — clean, 1.83s, **70.77 KB gz JS** (was 63.73
+  → +7 KB gz for html-to-image + DownloadMenu + ShareLinkPill +
+  exports.ts)
+- `npm test` — **162 / 162 passed** (was 158 → +4 exports tests)
+
+**Test count**
+
+- 162 / 162 (was 158)
+
+**Commit hash**
+
+- Pending this session
+
+**Notes**
+
+- Manual smoke check pending: dev server → click "↓ Lataa" → 3
+  options visible → each downloads a file with timestamped name.
+  "↗ Jaa linkki" copies URL + shows "Linkki kopioitu" toast.
+- Next: Phase 4 (2/4) — accessibility (Tab cycle through map
+  regions, `:focus-visible` tooltips, comprehensive ARIA labels,
+  min text size 12px sweep).
