@@ -37,6 +37,14 @@ export interface FillOptions {
    *  diverging-vs-single-hue auto-pick + ramp scaling. Required
    *  for `mode === "formula"`. */
   formulaRange?: { min: number; max: number } | null;
+  /** Min/max of focus-party shares across visible regions for
+   *  adaptive `support` mode coloring. When omitted, fixed
+   *  thresholds are used (tuned for the largest parties). */
+  supportRange?: { min: number; max: number } | null;
+  /** Min/max of percentage-point swings across visible regions
+   *  for adaptive `change` mode coloring. When omitted, fixed
+   *  ±4pp thresholds are used. */
+  changeRange?: { min: number; max: number } | null;
 }
 
 /** Determine the SVG fill for one region.
@@ -57,11 +65,20 @@ export function fillForRegion(
     case "winner":
       return winnerFill(result!);
     case "support":
-      return supportFill(result!, options.focusParty ?? null);
+      return supportFill(
+        result!,
+        options.focusParty ?? null,
+        options.supportRange ?? null,
+      );
     case "votes":
       return votesFill(result!);
     case "change":
-      return changeFill(result!, options.refResult ?? null, options.focusParty ?? null);
+      return changeFill(
+        result!,
+        options.refResult ?? null,
+        options.focusParty ?? null,
+        options.changeRange ?? null,
+      );
     case "formula":
       return formulaFill(options.formulaValue ?? null, options.formulaRange ?? null);
   }
@@ -124,16 +141,47 @@ function winnerFill(result: RegionResult): string {
 
 /* ─── Mode: support % (single-hue ramp) ─────────────────────── */
 
-/** Single-hue cream→blue ramp thresholds — preserved from prototype. */
-function supportFill(result: RegionResult, focusParty: PartyId | null): string {
+/** Cream→blue single-hue ramp.
+ *
+ *  When a `range` is supplied (typically computed by the caller
+ *  across all visible regions), buckets are evenly distributed
+ *  within that range — important for small parties whose entire
+ *  share range fits inside the prototype's lowest fixed bucket.
+ *
+ *  When `range` is null, falls back to the prototype's fixed
+ *  thresholds (10/17/23/30/38) which are tuned for parties that
+ *  typically exceed 10%. */
+function supportFill(
+  result: RegionResult,
+  focusParty: PartyId | null,
+  range: { min: number; max: number } | null,
+): string {
   const v = focusParty
     ? (result.shares[focusParty] ?? 0)
     : Math.max(0, ...Object.values(result.shares).filter((x): x is number => x != null));
+
+  if (range) return singleHueRamp(v, range);
+
+  // Fixed-threshold fallback.
   if (v < 10) return "var(--ramp-support-1)";
   if (v < 17) return "var(--ramp-support-2)";
   if (v < 23) return "var(--ramp-support-3)";
   if (v < 30) return "var(--ramp-support-4)";
   if (v < 38) return "var(--ramp-support-5)";
+  return "var(--ramp-support-6)";
+}
+
+/** Linear-bucket a value within `[range.min, range.max]` onto the
+ *  6-step support ramp. Same step splits as the formula mode's
+ *  single-hue branch (0.15 / 0.35 / 0.55 / 0.75 / 0.90). */
+function singleHueRamp(v: number, range: { min: number; max: number }): string {
+  const span = range.max - range.min || 1;
+  const t = (v - range.min) / span;
+  if (t < 0.15) return "var(--ramp-support-1)";
+  if (t < 0.35) return "var(--ramp-support-2)";
+  if (t < 0.55) return "var(--ramp-support-3)";
+  if (t < 0.75) return "var(--ramp-support-4)";
+  if (t < 0.9) return "var(--ramp-support-5)";
   return "var(--ramp-support-6)";
 }
 
@@ -163,16 +211,38 @@ export function pointChange(
   return a - b;
 }
 
-/** Diverging ramp thresholds — preserved from prototype.
- *  Colorblind-safe: purple (loss) ↔ cream ↔ orange (gain). */
+/** Diverging purple↔orange ramp.
+ *
+ *  When a `range` is supplied, buckets are scaled to the largest
+ *  absolute swing in the visible region set — so for small parties
+ *  whose typical swing is ±2pp the map still reads as a real
+ *  gain/loss diverging palette rather than collapsing into the
+ *  middle "no change" bucket.
+ *
+ *  When `range` is null, falls back to the prototype's ±4pp /
+ *  ±1.5pp fixed thresholds. Colorblind-safe in either mode. */
 function changeFill(
   current: RegionResult,
   ref: RegionResult | null,
   focusParty: PartyId | null,
+  range: { min: number; max: number } | null,
 ): string {
   if (!ref || !focusParty) return NEUTRAL_FILL;
   const v = pointChange(current, ref, focusParty);
   if (v == null) return NEUTRAL_FILL;
+
+  if (range) {
+    const bound = Math.max(Math.abs(range.min), Math.abs(range.max));
+    if (bound === 0) return "var(--ramp-change-3)";
+    const t = v / bound; // -1..1
+    if (t <= -0.66) return "var(--ramp-change-1)";
+    if (t <= -0.25) return "var(--ramp-change-2)";
+    if (t < 0.25) return "var(--ramp-change-3)";
+    if (t < 0.66) return "var(--ramp-change-4)";
+    return "var(--ramp-change-5)";
+  }
+
+  // Fixed-threshold fallback.
   if (v <= -4) return "var(--ramp-change-1)";
   if (v <= -1.5) return "var(--ramp-change-2)";
   if (v <= 1.5) return "var(--ramp-change-3)";

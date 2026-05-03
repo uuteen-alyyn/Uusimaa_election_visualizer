@@ -1335,3 +1335,63 @@ workflow surface end-to-end against real data.
   ship audit. Plus the small backlog of formula-mode niceties
   (live preview in the builder, stricter selector validation in
   the evaluator).
+
+---
+
+## ENTRY fix: adaptive support / change ramps for small parties 2026-05-03
+
+**What was done**
+
+- `src/lib/color-ramps.ts`:
+  * `FillOptions` adds `supportRange` and `changeRange` —
+    `{min, max}` over the visible region set
+  * `supportFill` uses the supplied range to evenly distribute
+    the 6-step cream→blue ramp; falls back to the prototype's
+    fixed thresholds (10/17/23/30/38) when range is null
+  * `changeFill` uses the supplied range's largest absolute
+    swing as the diverging-ramp bound, matching the formula
+    mode's diverging branch; falls back to ±4pp / ±1.5pp fixed
+    thresholds when range is null
+  * Extracted `singleHueRamp(v, range)` so the support-mode and
+    formula-mode single-hue branches share one bucketing rule
+- `src/App.tsx` computes `supportRange` and `changeRange` per
+  active mode + visible region set, then passes through `getFill`.
+- 7 new tests in `color-ramps.test.ts` covering both adaptive
+  paths (Vihr 2-15% support, Vihr ±2pp change) and the
+  fall-back-to-fixed-thresholds when range is null or degenerate.
+
+**Why**
+
+User flagged that for Vihr, Vas, Rkp, KD the map looked flat in
+support mode. Diagnosis: those parties' nationwide range
+(typically 2–15%) fits inside the prototype's first 1–2 fixed
+buckets, so 90%+ of the map renders the same shade. Same problem
+applies to change mode for small parties whose typical swing is
+smaller than the ±4pp fixed threshold.
+
+Fix: scale the ramps to the actual data range across visible
+regions. Same pattern formula mode already used (the diverging-
+vs-single-hue auto-pick on `formulaRange`). Big parties keep
+working — for KOK at 18-30% the adaptive range mostly produces
+the same buckets as the fixed thresholds. The win is that small
+parties now read as real geographic patterns.
+
+**Files changed**
+
+- Modified: `src/lib/color-ramps.ts`,
+  `src/lib/color-ramps.test.ts`, `src/App.tsx`,
+  `Logbook.md` (this entry)
+
+**Build status**
+
+- `npm run typecheck` — clean
+- `npm run build` — clean, 1.99s, 63.73 KB gz JS (+0.3 KB)
+- `npm test` — 158 / 158 passed (was 151 → +7)
+
+**Test count**
+
+- 158 / 158 (was 151)
+
+**Commit hash**
+
+- Pending this session

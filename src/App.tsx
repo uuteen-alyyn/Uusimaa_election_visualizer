@@ -403,6 +403,44 @@ export function App(): JSX.Element {
     );
   }, [mode, resolvedFormula, visibleRegionIds, formulaLookup, framing, selected]);
 
+  /* ─── Adaptive support / change ranges across visible regions ── */
+
+  /** Range of focus-party shares across visible regions — drives the
+   *  `support` ramp's adaptive bucketing so small parties (Vihr, Vas,
+   *  Rkp, KD) read as real variation across the map instead of
+   *  collapsing into the lightest 1–2 fixed buckets. */
+  const supportRange = useMemo(() => {
+    if (mode !== "support" || !focusParty || !currentResults) return null;
+    let min = Infinity;
+    let max = -Infinity;
+    for (const id of visibleRegionIds) {
+      const v = currentResults.get(id)?.shares[focusParty];
+      if (v == null) continue;
+      if (v < min) min = v;
+      if (v > max) max = v;
+    }
+    if (!Number.isFinite(min) || !Number.isFinite(max) || min === max) return null;
+    return { min, max };
+  }, [mode, focusParty, currentResults, visibleRegionIds]);
+
+  /** Range of percentage-point swings across visible regions — same
+   *  rationale as `supportRange` but for the diverging change ramp. */
+  const changeRange = useMemo(() => {
+    if (mode !== "change" || !focusParty || !currentResults || !refResults) return null;
+    let min = Infinity;
+    let max = -Infinity;
+    for (const id of visibleRegionIds) {
+      const a = currentResults.get(id)?.shares[focusParty];
+      const b = refResults.get(id)?.shares[focusParty];
+      if (a == null || b == null) continue;
+      const d = a - b;
+      if (d < min) min = d;
+      if (d > max) max = d;
+    }
+    if (!Number.isFinite(min) || !Number.isFinite(max) || min === max) return null;
+    return { min, max };
+  }, [mode, focusParty, currentResults, refResults, visibleRegionIds]);
+
   // Per-region formula values (memoised, so getFill is O(1) per call).
   const formulaValueByRegion = useMemo(() => {
     if (mode !== "formula" || resolvedFormula.length === 0) return new Map<string, number>();
@@ -436,6 +474,8 @@ export function App(): JSX.Element {
         refResult,
         formulaValue,
         formulaRange,
+        supportRange,
+        changeRange,
       });
     },
     [
@@ -445,6 +485,8 @@ export function App(): JSX.Element {
       focusParty,
       formulaValueByRegion,
       formulaRange,
+      supportRange,
+      changeRange,
     ],
   );
 

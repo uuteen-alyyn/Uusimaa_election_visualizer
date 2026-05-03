@@ -188,10 +188,116 @@ describe("fillForRegion (change)", () => {
   });
 });
 
-/* ─── fillForRegion: formula (Phase 3 stub) ────────────────── */
+/* ─── fillForRegion: formula ───────────────────────────────── */
 
-describe("fillForRegion (formula — Phase 3 stub)", () => {
-  it("returns NEUTRAL_FILL until Phase 3 wires the evaluator", () => {
-    expect(fillForRegion(row({ kok: 25 }), "formula")).toBe(NEUTRAL_FILL);
+describe("fillForRegion (formula)", () => {
+  it("returns NEUTRAL_FILL when value or range is missing", () => {
+    expect(fillForRegion(null, "formula")).toBe(NEUTRAL_FILL);
+    expect(fillForRegion(row({}), "formula")).toBe(NEUTRAL_FILL);
+    expect(
+      fillForRegion(row({}), "formula", {
+        formulaValue: 5,
+        formulaRange: null,
+      }),
+    ).toBe(NEUTRAL_FILL);
+  });
+
+  it("uses the diverging ramp when the range straddles zero", () => {
+    const opts = { formulaValue: 5, formulaRange: { min: -10, max: 10 } };
+    // t = 5 / 10 = 0.5; falls in 0.25 ≤ t < 0.66 → ramp-change-4
+    expect(fillForRegion(row({}), "formula", opts)).toBe("var(--ramp-change-4)");
+  });
+
+  it("uses the single-hue ramp when the range is all positive", () => {
+    const opts = { formulaValue: 50, formulaRange: { min: 0, max: 100 } };
+    // t = (50 - 0) / 100 = 0.5; falls in 0.35 ≤ t < 0.55 → ramp-support-3
+    expect(fillForRegion(row({}), "formula", opts)).toBe("var(--ramp-support-3)");
+  });
+});
+
+/* ─── adaptive support range ───────────────────────────────── */
+
+describe("fillForRegion (support, adaptive)", () => {
+  // For Vihr at 2-15% across regions, fixed thresholds collapse
+  // most regions into ramp-1. Adaptive should spread them.
+  const range = { min: 2, max: 15 };
+
+  it("scales the bucket boundaries to the supplied range", () => {
+    // v = 2 (range min) → t = 0 → ramp-1
+    expect(
+      fillForRegion(row({ vihr: 2 }), "support", { focusParty: "vihr", supportRange: range }),
+    ).toBe("var(--ramp-support-1)");
+    // v = 15 (range max) → t = 1 → ramp-6
+    expect(
+      fillForRegion(row({ vihr: 15 }), "support", { focusParty: "vihr", supportRange: range }),
+    ).toBe("var(--ramp-support-6)");
+    // v = 8.5 (mid) → t = 0.5 → ramp-3 (0.35..0.55)
+    expect(
+      fillForRegion(row({ vihr: 8.5 }), "support", {
+        focusParty: "vihr",
+        supportRange: range,
+      }),
+    ).toBe("var(--ramp-support-3)");
+  });
+
+  it("falls back to fixed thresholds when range is null", () => {
+    // v = 8.5 → fixed: < 10 → ramp-1
+    expect(
+      fillForRegion(row({ vihr: 8.5 }), "support", { focusParty: "vihr" }),
+    ).toBe("var(--ramp-support-1)");
+  });
+
+  it("falls back when range is degenerate (single value)", () => {
+    // Equal min/max isn't a useful range; expect the SAME bucket
+    // for any input via the fallback path.
+    const flat = { min: 5, max: 5 };
+    expect(
+      fillForRegion(row({ vihr: 5 }), "support", { focusParty: "vihr", supportRange: flat }),
+    ).toBe(
+      // Note: with span = 0 → 1 fallback in singleHueRamp, t = 0 → ramp-1
+      "var(--ramp-support-1)",
+    );
+  });
+});
+
+/* ─── adaptive change range ────────────────────────────────── */
+
+describe("fillForRegion (change, adaptive)", () => {
+  // Vihr swings ±2pp typically; fixed ±4pp thresholds collapse
+  // every region into the middle "no change" bucket. Adaptive
+  // ramp scales to the actual data spread.
+  const range = { min: -2, max: 2 };
+
+  function changeOpts(refShare: number) {
+    return {
+      focusParty: "vihr" as const,
+      refResult: row({ vihr: refShare }),
+      changeRange: range,
+    };
+  }
+
+  it("scales diverging buckets to the largest absolute swing", () => {
+    // delta = -2 → t = -1 → ramp-change-1 (purple)
+    expect(
+      fillForRegion(row({ vihr: 0 }), "change", changeOpts(2)),
+    ).toBe("var(--ramp-change-1)");
+    // delta = +2 → t = +1 → ramp-change-5 (orange)
+    expect(
+      fillForRegion(row({ vihr: 4 }), "change", changeOpts(2)),
+    ).toBe("var(--ramp-change-5)");
+    // delta = 0 → t = 0 → ramp-change-3 (cream)
+    expect(
+      fillForRegion(row({ vihr: 2 }), "change", changeOpts(2)),
+    ).toBe("var(--ramp-change-3)");
+  });
+
+  it("falls back to fixed ±4pp thresholds when range is null", () => {
+    // delta = -2 → fixed: -2 ≤ -1.5 → ramp-2
+    expect(
+      fillForRegion(row({ vihr: 0 }), "change", {
+        focusParty: "vihr",
+        refResult: row({ vihr: 2 }),
+      }),
+    ).toBe("var(--ramp-change-2)");
   });
 });
