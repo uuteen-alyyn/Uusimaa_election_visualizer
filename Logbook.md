@@ -249,6 +249,101 @@ files changed, build status, test count, commit hash, decisions, notes.
   and `LocalFixtureSource` impl), `src/data/catalog.ts` (port of
   ELECTIONS / ELECTION_TYPES from the prototype). After that,
   Phase 0 is closed and we move to Phase 1.
+
+---
+
+## ENTRY Phase 0 (4/4) — typed surface + data-source contract 2026-05-03
+
+**What was done**
+
+- `src/types/elections.ts`: full type vocabulary for the visualizer:
+  * Identifiers: `RegionId`, `ElectionId`, `ElectionTypeId`,
+    `AreaLevel`, `PartyId` (+ `KNOWN_PARTY_IDS` const tuple +
+    `KnownPartyId` derived type so the 8 brand-color parties get
+    autocomplete while smaller parties still pass through)
+  * Wire shapes: `Candidate`, `RegionResult`
+  * Workflow: `WorkflowKind`, `Workflow`
+  * Formula: `FormulaToken` (discriminated union of
+    chip/op/paren/num), `ChipFields`, `ChipWho`, `Binding`,
+    `FormulaFraming`
+  * `AppState` for the URL-hash codec
+- `src/data/elections-source.ts`: the visualizer's data-access
+  boundary.
+  * `ElectionDataSource` interface — narrow on purpose
+    (`getRegionResult` + `listAreas`)
+  * `FixtureFile` wire shape for `public/data/elections/{id}.json`
+  * `LocalFixtureSource` — `fetch`-based loader with per-election
+    in-memory cache. Phase 0 stub: every call returns
+    `{ status: "no_data" }` (fixtures don't exist yet). Phase 1
+    populates them.
+- `src/data/catalog.ts`: ported from
+  [prototype/wf-workflows.jsx:29](prototype/wf-workflows.jsx#L29) —
+  `ELECTION_TYPES`, `ELECTIONS` (all 14 entries from the prototype),
+  `ELECTION_BY_ID`, `electionsOfType`, `defaultElectionForType`,
+  `PARTIES`, `PARTY_BY_ID`. Election labels and shortLabels
+  preserved verbatim so URL-hash share links stay compatible.
+
+**Decisions**
+
+- **`PartyId = string` (not a closed union)** with a separate
+  `KNOWN_PARTY_IDS` tuple for the 8 brand-color parties. Smaller
+  parties from PxWeb (e.g. Liike Nyt, Piraattipuolue) still type-check
+  but render with a fallback color. Avoids cascading union-type
+  updates when a new party gains seats.
+- **`RegionId = string` is the public type**; comment notes that the
+  prototype's geometry uses short slugs (`"hel"`, `"uus"`) for vp ids
+  while PxWeb uses 2-digit codes — this gets reconciled in Phase 2
+  when geometry meets data.
+- **`LocalFixtureSource` returns `null`/`[]` instead of throwing**
+  for missing data. The UI will render `.nodata` crosshatch on
+  empty results — robustness over loud failure for elections that
+  haven't happened yet.
+- **`listAreas(level, parentId)` parameters** are accepted but
+  ignored in the Phase 0 stub (prefixed with `_` to satisfy
+  `noUnusedParameters`). Phase 1 wires the level/parentId filter
+  on top of the full `areas` array.
+- **JS bundle didn't grow** because nothing imports these new files
+  yet (Vite tree-shakes them). They'll get pulled in when Phase 1
+  components reference them.
+
+**Files changed**
+
+- New: `src/types/elections.ts`, `src/data/elections-source.ts`,
+  `src/data/catalog.ts`
+- Modified: `Implementation_plan.md` (Phase 0 task checkboxes —
+  Phase 0 is now fully `[x]`), `Logbook.md` (this entry)
+
+**Build status**
+
+- `npm run typecheck` — clean
+- `npm run build` — clean, 1.53s, 46 KB gz JS, 1.53 KB gz CSS
+- `npm test` — 0 tests, exits 0
+
+**Test count**
+
+- 0 / 0
+
+**Commit hash**
+
+- Pending this session
+
+**Notes**
+
+- **Phase 0 complete.** All scaffold tasks marked `[x]` in
+  `Implementation_plan.md`. Repo conforms to good-practices
+  standards; toolchain works end-to-end (typecheck + build + test);
+  data-layer contract is defined and stubbed; design tokens are
+  ready for components to consume.
+- **Acceptance check** against the Phase 0 acceptance test:
+  * `npm run dev` opens at `http://localhost:5173` with tokens
+    loaded — pending manual verification by the user
+  * `npm run build` exits 0 ✓
+  * `npm test` exits 0 ✓
+  * `npm run typecheck` exits 0 ✓
+- Next: Phase 1 — wire `scripts/build-fixtures.ts` to the elections
+  submodule's loaders, generate `public/data/elections/{id}.json`
+  for every catalog election, write the first vitest tests
+  (`elections-source.test.ts`, `share-state.test.ts`).
 - Server team's deploy answer is captured verbatim in `BACKLOG.md`'s
   Phase 5 references; the Caddyfile snippet is in the implementation
   plan and will be committed under `deploy/Caddyfile.snippet` in

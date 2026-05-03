@@ -116,13 +116,13 @@ Uusimaa_election_visualizer/
       block into `src/styles/tokens.css` + `src/styles/primitives.css`
 - [x] Add Google Fonts link (Caveat, Architects Daughter, JetBrains
       Mono) in `index.html`
-- [ ] Stub `src/types/elections.ts` with `RegionId`, `PartyId`,
+- [x] Stub `src/types/elections.ts` with `RegionId`, `PartyId`,
       `ElectionId`, `RegionResult`, `Workflow`, `FormulaToken`,
       `Binding`, `AppState`
-- [ ] Stub `src/data/elections-source.ts` with `ElectionDataSource`
+- [x] Stub `src/data/elections-source.ts` with `ElectionDataSource`
       interface; one impl `LocalFixtureSource` (reads
       `/data/elections/{id}.json` lazily, in-memory cache)
-- [ ] Stub `src/data/catalog.ts` with `ELECTIONS` and `ELECTION_TYPES`
+- [x] Stub `src/data/catalog.ts` with `ELECTIONS` and `ELECTION_TYPES`
       ported from
       [prototype/wf-workflows.jsx:29](prototype/wf-workflows.jsx#L29)
 - [x] Add `npm` scripts: `dev`, `build` (= `prefetch && tsc && vite build`),
