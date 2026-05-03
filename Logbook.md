@@ -773,6 +773,54 @@ than commit-per-file here.)
   output and confirm before we move to Phase 3.
 - Next: Phase 3 — full dashboard, workflow bar, formula composer,
   ledger, share link, exports.
+
+---
+
+## ENTRY fix: PS party color → official Pantone Process Yellow 2026-05-03
+
+**What was done**
+
+- Changed `--p-ps` from `#2a4a7a` (dark navy in the prototype) to
+  `#ffeb00` (PS's official primary color: Pantone Process Yellow,
+  RGB 255/235/0) in `src/styles/tokens.css`.
+
+**Why**
+
+User flagged on the live winner-mode map that PS's dark navy was
+indistinguishable from KOK's `#1f5a9c` blue — both deep blues read
+as the same color on small vp polygons. PS dominates large parts
+of southern + western Finland in 2023 results and KOK dominates
+Helsinki + Uusimaa; side-by-side they merged visually.
+
+I initially picked a warm orange (`#d97a1f`) before user shared
+PS's official brand colors:
+
+- KELTAINEN PÄÄVÄRI (primary yellow): CMYK 0/0/100/0,
+  RGB 255/235/0, Pantone Process Yellow
+- TEHOSTEVÄRI A (accent red-orange): CMYK 0/80/100/0,
+  RGB 255/80/0, Pantone Warm Red
+
+Went with the primary yellow because:
+- It's the official brand primary (best fidelity)
+- The accent red-orange `#FF5000` would clash with VAS `#c94a2a`
+  and SDP `#d94a4a` (both reds)
+- Pure yellow at 100% saturation is visibly distinct from RKP's
+  `#e8b84a` gold (RKP has more orange + less saturation)
+- High contrast against the cream paper background
+
+**Files changed**
+
+- `src/styles/tokens.css`
+
+**Build status**
+
+- `npm run typecheck` — clean
+- `npm run build` — clean, 2.37s, 50 KB gz JS
+- `npm test` — 58 / 58 passed
+
+**Commit hash**
+
+- Pending this session
 - Server team's deploy answer is captured verbatim in `BACKLOG.md`'s
   Phase 5 references; the Caddyfile snippet is in the implementation
   plan and will be committed under `deploy/Caddyfile.snippet` in

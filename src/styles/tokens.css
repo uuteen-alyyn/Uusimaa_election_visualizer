@@ -22,7 +22,12 @@
   --p-sdp: #d94a4a;
   --p-kok: #1f5a9c;
   --p-kesk: #2e8f4a;
-  --p-ps: #2a4a7a;
+  /* PS was #2a4a7a (dark navy) in the prototype — too close to KOK's
+     blue on small vp polygons. Switched to PS's official primary
+     yellow (Pantone Process Yellow, RGB 255/235/0). Distinct from
+     KOK's blue and from RKP's gold (#e8b84a) — RKP gold has visibly
+     more orange / less saturation than PS's pure yellow. */
+  --p-ps: #ffeb00;
   --p-vihr: #4a9c3a;
   --p-vas: #c94a2a;
   --p-rkp: #e8b84a;
