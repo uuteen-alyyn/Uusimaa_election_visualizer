@@ -293,3 +293,62 @@ export function formulaSummary(tokens: FormulaToken[]): string {
   if (!tokens || tokens.length === 0) return "empty formula";
   return tokens.map(formulaTokenLabel).join(" ");
 }
+
+/* ─── Selector binding resolution ────────────────────────────── */
+
+import type { Binding } from "../types/elections";
+
+/** Walk a token list and replace every selector slot with its
+ *  bound value. Selectors that are still unbound stay as
+ *  selectors, so the evaluator can produce a clear "unbound
+ *  selector" error rather than silently returning 0. */
+export function resolveFormulaTokens(
+  tokens: FormulaToken[],
+  bindings: Record<string, Binding>,
+): FormulaToken[] {
+  return tokens.map((t) => {
+    if (t.kind !== "chip") return t;
+    const f: ChipFields = { ...t.fields };
+
+    if (f.selType) {
+      const b = bindings[f.selType];
+      if (b?.type) {
+        f.type = b.type;
+        delete f.selType;
+      }
+    }
+    if (f.selYear) {
+      const b = bindings[f.selYear];
+      if (b?.year) {
+        f.year = b.year;
+        if (b.round) f.round = b.round;
+        delete f.selYear;
+      }
+    }
+    if (f.selWho) {
+      const b = bindings[f.selWho];
+      if (b?.who) {
+        f.who = b.who;
+        delete f.selWho;
+      }
+    }
+
+    return { kind: "chip", fields: f };
+  });
+}
+
+/** Find every distinct selector slot in a token list, in order of
+ *  first appearance. Used by the param-row binding picker. */
+export function listSelectors(
+  tokens: FormulaToken[],
+): Array<{ name: string; slot: "type" | "year" | "who" }> {
+  const seen = new Map<string, "type" | "year" | "who">();
+  for (const t of tokens) {
+    if (t.kind !== "chip") continue;
+    const f = t.fields;
+    if (f.selType && !seen.has(f.selType)) seen.set(f.selType, "type");
+    if (f.selYear && !seen.has(f.selYear)) seen.set(f.selYear, "year");
+    if (f.selWho && !seen.has(f.selWho)) seen.set(f.selWho, "who");
+  }
+  return [...seen.entries()].map(([name, slot]) => ({ name, slot }));
+}

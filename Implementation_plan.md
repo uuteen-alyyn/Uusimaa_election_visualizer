@@ -248,34 +248,34 @@ vaalipiiri.
 **Goal:** every interactive feature from the prototype is reproduced
 against real data.
 
-- [/] Port `V2_Focused` from
+- [x] Port `V2_Focused` from
       [prototype/wf-variants.jsx](prototype/wf-variants.jsx) →
-      `src/App.tsx` *(in progress — shell + built-ins + URL hash
-      done in 3 (2/4); ledger + share/download in 3 (3/4); custom
-      composer in 3 (4/4))*:
-  - [x] Top bar: `Crumb` (share-link pill + `DownloadMenu` in 3 (3/4))
-  - [x] Workflow bar (built-ins; custom row in 3 (4/4))
-  - [/] Per-mode parameter row (row 3): `ElectionPicker`,
-        party-to-color picker — done; change comparison mode
-        (pp / votes), formula framing tabs in 3 (3/4) / (4/4)
+      `src/App.tsx`:
+  - [x] Top bar: `Crumb` (share-link pill + `DownloadMenu` are
+        Phase 4 items)
+  - [x] Workflow bar with built-ins + custom row + "+ Custom"
+        trigger + Edit / Remove popovers
+  - [x] Per-mode parameter row: `ElectionPicker`, party picker,
+        change ref-vs-current, formula framing tabs, selector
+        binding row
   - [ ] Map area with pan/zoom, ↑/↓/Tab navigation, sub-region
         popover, focus-party picker, dynamic legend *(Phase 4)*
-  - [/] Ledger: big-number TOTAL VOTES + party-share bars + turnout
-        done in 3 (3/4); formula value lands in 3 (4/4) when the
-        composer ships; top candidates list deferred to Phase 4
-        (fixtures don't have candidates yet)
-- [/] Port `WorkflowBar` + `WorkflowBuilder` from
+  - [x] Ledger: TOTAL VOTES + party-share bars + turnout +
+        **formula value block** (when active). Top candidates list
+        deferred to Phase 4 (fixtures don't have candidates yet)
+- [x] Port `WorkflowBar` + `WorkflowBuilder` from
       [prototype/wf-workflows.jsx](prototype/wf-workflows.jsx)
-      *(WorkflowBar — built-ins shipped; WorkflowBuilder in 3 (4/4))*
 - [x] Port `BUILTIN_WORKFLOWS`, `WF_KINDS`, `workflowsEquivalent`,
       `workflowSubtitle` → `src/lib/workflow.ts` (kept in `lib/`
       since they're pure helpers; catalog.ts stays data-only)
-- [ ] Port `FormulaComposer` from
+- [x] Port `FormulaComposer` from
       [prototype/wf-suggest.jsx](prototype/wf-suggest.jsx) →
       `src/components/FormulaComposer.tsx`:
-  - [ ] Progressive type→year→who chip slots
-  - [ ] Selectors `$A/$B/$C` with late binding
-  - [ ] Suggestion list, keyboard navigation (↑↓↵)
+  - [x] Progressive type→year→who chip slots
+  - [x] Selectors `$A/$B/$C` with late binding (binding picker in
+        param row when a formula has selectors)
+  - [x] Suggestion list, keyboard navigation (↑↓↵, ⌫ strips
+        last field)
 - [x] Port the formula evaluator from
       [prototype/wf-map.jsx:178](prototype/wf-map.jsx#L178) →
       `src/lib/formula.ts`:
@@ -285,8 +285,9 @@ against real data.
         pure; production wraps a pre-loaded Map)
   - [x] Three framings: `absolute`, `share`, `vsSelected`
   - [x] `formulaRange` across visible regions
-- [ ] localStorage persistence: `vk_workflows_v1` (preserve key for
-      forward compat) *(Phase 3 (4/4) — when custom workflows ship)*
+- [x] localStorage persistence: `vk_workflows_v1` (preserve key for
+      forward compat) — load on mount, persist on every
+      `customWorkflows` change
 - [x] URL hash share: `#v=<base64-json>` — codec ready since Phase 1;
       App now writes mode/election/refElection/focusParty to the
       hash on every change and reads from it on initial mount

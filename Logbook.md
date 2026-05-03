@@ -1174,3 +1174,164 @@ warmer pinks anyway.
 - Next: Phase 3 (4/4) — Custom formula composer + WorkflowBuilder
   modal + localStorage persistence. The "+ Custom" trigger
   appears in the workflow bar and opens the chip-based composer.
+
+---
+
+## ENTRY Phase 3 (4/4) — custom formula composer; closes Phase 3 2026-05-03
+
+**What was done**
+
+Closes Phase 3. The dashboard now matches the prototype's full
+workflow surface end-to-end against real data.
+
+- `src/lib/composer-suggestions.ts` — pure helpers for the
+  composer's progressive suggestions:
+  * `chipIsComplete`, `nextFieldFor`, `stripLastField` —
+    chip-state finite state machine
+  * `score` / `scoreOne` — substring/prefix/acronym ranking
+    (verbatim port from prototype)
+  * `pickNextSelectorName` — `A`, `B`, `C`… selector naming
+  * `chipText` / `chipFullText` — progressive chip display labels
+  * `buildSuggestions` — the main entry, per-slot ranking
+  * Type-tagged `Suggestion` discriminated union
+  * Phase 3 deliberately drops the candidate-suggestion branch:
+    fixtures don't have candidate data, so candidate chips would
+    silently produce no-data formulas
+- `src/components/FormulaComposer.tsx` — chip-based input,
+  keyboard-navigable, port of the prototype's
+  `FormulaComposer`. Uses `composer-suggestions.ts` for state
+  + ranking; bundles `ChipPill` and `SuggestionGlyph` privately.
+- `src/components/WorkflowBuilder.tsx` — modal popover wrapping
+  the composer. Two modes:
+  * `new`: creates a new custom workflow on save
+  * `edit`: updates the existing workflow in place (carries
+    saved selector labels through)
+  Auto-derives selectors from tokens; shows a friendly-name input
+  per selector that maps to the param row's binding picker.
+- `src/components/WorkflowBar.tsx` rewritten to two rows:
+  * Row 1: built-ins + "+ Mukautettu" trigger
+  * Row 2: custom workflows (with ƒ glyph) + Edit popover +
+    Remove popover (multi-select with checkboxes)
+- `src/lib/formula.ts` extended:
+  * `resolveFormulaTokens(tokens, bindings)` — replaces selector
+    slots with their bound concrete values; selectors that are
+    still unbound stay as selectors (so the evaluator surfaces a
+    clear error rather than silently returning 0)
+  * `listSelectors(tokens)` — distinct selectors in order of
+    first appearance, used by both the param-row UI and the
+    auto-default-bindings helper
+- `src/lib/color-ramps.ts` formula branch wired:
+  * `fillForRegion(..., { formulaValue, formulaRange })` returns a
+    diverging purple↔orange ramp when the value range straddles 0
+    and a single-hue cream→blue ramp otherwise
+  * Same threshold buckets as the prototype
+- `src/components/Ledger.tsx` — formula value block:
+  * Shows the formula expression (`ƒ Kok % (EK 2023) - …`) and
+    the framed value with a unit suffix
+  * Three framings supported: absolute (raw), % of total, vs
+    selected (with `+` sign on positive values)
+- `src/App.tsx` — major rewrite:
+  * State now includes `formulaTokens`, `formulaBindings`,
+    `framing`, `customWorkflows`, `appliedWorkflowId`,
+    `appliedSelectorLabels`, `builderOpen`, `editingWorkflow`
+  * `useFormulaResults` hook — given a token list, loads every
+    election the formula references and returns a ResultLookup
+    closure. Memoised against a stable join-key so React
+    re-renders don't re-fetch
+  * `formulaValueByRegion` Map — pre-computed per render so
+    `getFill` is O(1) per call. Framing is applied in the same
+    pass, so the diverging-vs-single-hue auto-pick in
+    `color-ramps.formulaFill` matches the framed range.
+  * `applyWorkflow` now copies formula + selectorLabels +
+    defaultBindings; `autoDefaultBindings` fills in sensible
+    defaults for any selector that doesn't have one yet
+  * `saveWorkflow` / `updateWorkflow` / `deleteWorkflow` wired
+    to setCustomWorkflows; `useEffect` persists to localStorage
+    on every change
+  * URL hash sync includes `formulaTokens` + `formulaBindings`
+    when mode === "formula"
+  * Selector binding row (param row, formula mode only) — picks
+    type / year / party for each `$X` selector. Friendly names
+    come from `appliedSelectorLabels`.
+  * Framing tabs — absolute / % of total / vs selected.
+    "vs selected" is disabled when no region is selected.
+
+**Decisions**
+
+- **Composer drops the candidate-suggestion branch** (it appears
+  in the prototype but we can't honor it: fixtures don't carry
+  candidate data; selecting a candidate chip would silently
+  produce a no-data formula). Re-add when candidate data lands.
+- **Bindings auto-default** to ek / ek2023 / kok. Means a saved
+  formula like `$A % (EK $B) - $A % (EK 2019)` is immediately
+  productive when first applied, not blank.
+- **`useFormulaResults` join-key by stable string** —
+  `electionIds.join("|")` is the dependency since arrays don't
+  shallow-compare. Re-runs only when the *set* of elections the
+  formula references changes, not on every keystroke in the
+  composer.
+- **Pre-compute `formulaValueByRegion` once per render** rather
+  than re-evaluating in `getFill`. The map has at most ~310
+  entries, evaluation is microseconds; pre-computing simplifies
+  the dependency graph and lets us share the framed values with
+  the Ledger.
+- **`vsSelected` framing disables when nothing's selected** —
+  rather than silently falling back to absolute. Shows a
+  not-allowed cursor on hover with a tooltip.
+- **Formula color-ramp sits in `color-ramps.ts`** (not in
+  `formula.ts`) — visual-mapping concerns belong with the rest of
+  the ramp logic. `formula.ts` stays focused on evaluation.
+
+**Files changed**
+
+- New: `src/components/FormulaComposer.tsx`,
+  `src/components/WorkflowBuilder.tsx`,
+  `src/lib/composer-suggestions.ts`,
+  `src/lib/composer-suggestions.test.ts`
+- Modified: `src/App.tsx` (major rewrite),
+  `src/components/WorkflowBar.tsx` (two rows + edit/remove
+  popovers), `src/components/Ledger.tsx` (formula value block),
+  `src/lib/color-ramps.ts` (formula-mode branch),
+  `src/lib/formula.ts` (`resolveFormulaTokens`, `listSelectors`),
+  `Implementation_plan.md`, `Logbook.md` (this entry)
+
+**Build status**
+
+- `npm run typecheck` — clean (both configs)
+- `npm run build` — clean, 1.61s, **63.40 KB gz JS**
+  (was 54.16 → +9.2 KB gz for FormulaComposer + WorkflowBuilder
+  + selector binding UI + framing tabs + formula color-ramp
+  branch + new evaluator helpers)
+- `npm test` — **151 / 151 passed** (was 126 → +25 for the new
+  composer-suggestions module)
+
+**Bundle size**
+
+- JS: 200.14 KB raw / 63.40 KB gzipped
+- CSS: 4.83 KB raw / 1.62 KB gzipped (unchanged)
+
+**Test count**
+
+- 151 / 151 (was 126)
+
+**Commit hash**
+
+- Pending this session
+
+**Notes**
+
+- **Phase 3 acceptance** (manual visual check pending):
+  * All four built-ins still work ✓ (regression check)
+  * Click "+ Mukautettu" → modal opens, type "eduskunta", arrow
+    keys + Enter pick "Eduskuntavaalit", continues to year, etc.
+  * Build `Kok 2023 - Kok 2019`, save with name "Kok kannatus
+    2019→2023" → custom pill appears in row 2
+  * Reload page → custom pill is back (localStorage) ✓
+  * Build `$A % (EK 2023) - $A % (EK 2019)` with selector A,
+    save → param row shows `$A` picker; switch from KOK to SDP
+    → map recolors with diverging ramp
+  * "Share link" — paste in new tab → identical view round-trips
+- **Phase 3 closed.** Next: Phase 4 — polish, exports, accessibility,
+  ship audit. Plus the small backlog of formula-mode niceties
+  (live preview in the builder, stricter selector validation in
+  the evaluator).

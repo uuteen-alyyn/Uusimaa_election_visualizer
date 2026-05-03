@@ -30,6 +30,13 @@ export interface FillOptions {
   /** Reference election's `RegionResult` for the same region.
    *  Required only when mode === "change". */
   refResult?: RegionResult | null;
+  /** Formula value for this region (already evaluated + framed by
+   *  the caller). Required for `mode === "formula"`. */
+  formulaValue?: number | null;
+  /** Min/max of formula values across all visible regions, for
+   *  diverging-vs-single-hue auto-pick + ramp scaling. Required
+   *  for `mode === "formula"`. */
+  formulaRange?: { min: number; max: number } | null;
 }
 
 /** Determine the SVG fill for one region.
@@ -42,21 +49,53 @@ export function fillForRegion(
   mode: WorkflowKind,
   options: FillOptions = {},
 ): string {
-  if (!result) return NEUTRAL_FILL;
+  // formula mode doesn't always need a `result` (the caller has
+  // already evaluated the formula); other modes do.
+  if (mode !== "formula" && !result) return NEUTRAL_FILL;
 
   switch (mode) {
     case "winner":
-      return winnerFill(result);
+      return winnerFill(result!);
     case "support":
-      return supportFill(result, options.focusParty ?? null);
+      return supportFill(result!, options.focusParty ?? null);
     case "votes":
-      return votesFill(result);
+      return votesFill(result!);
     case "change":
-      return changeFill(result, options.refResult ?? null, options.focusParty ?? null);
+      return changeFill(result!, options.refResult ?? null, options.focusParty ?? null);
     case "formula":
-      // Phase 3: wire through formula.ts (range + framing).
-      return NEUTRAL_FILL;
+      return formulaFill(options.formulaValue ?? null, options.formulaRange ?? null);
   }
+}
+
+/* ─── Mode: formula (auto-pick diverging vs single-hue) ─────── */
+
+function formulaFill(
+  value: number | null,
+  range: { min: number; max: number } | null,
+): string {
+  if (value === null || range === null) return NEUTRAL_FILL;
+  const { min, max } = range;
+  if (!Number.isFinite(min) || !Number.isFinite(max)) return NEUTRAL_FILL;
+
+  // Diverging if the value range straddles 0 (e.g. change in
+  // support); otherwise single-hue (e.g. raw % share).
+  if (min < 0 && max > 0) {
+    const bound = Math.max(Math.abs(min), Math.abs(max));
+    const t = bound === 0 ? 0 : value / bound;
+    if (t <= -0.66) return "var(--ramp-change-1)";
+    if (t <= -0.25) return "var(--ramp-change-2)";
+    if (t < 0.25) return "var(--ramp-change-3)";
+    if (t < 0.66) return "var(--ramp-change-4)";
+    return "var(--ramp-change-5)";
+  }
+  const span = max - min || 1;
+  const t = (value - min) / span;
+  if (t < 0.15) return "var(--ramp-support-1)";
+  if (t < 0.35) return "var(--ramp-support-2)";
+  if (t < 0.55) return "var(--ramp-support-3)";
+  if (t < 0.75) return "var(--ramp-support-4)";
+  if (t < 0.9) return "var(--ramp-support-5)";
+  return "var(--ramp-support-6)";
 }
 
 /* ─── Mode: winner ──────────────────────────────────────────── */

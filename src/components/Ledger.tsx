@@ -15,7 +15,11 @@
  */
 
 import { PARTIES } from "../data/catalog";
-import { KNOWN_PARTY_IDS, type RegionResult } from "../types/elections";
+import {
+  KNOWN_PARTY_IDS,
+  type FormulaFraming,
+  type RegionResult,
+} from "../types/elections";
 
 export type LedgerLevelLabel = "Koko maa" | "Vaalipiiri" | "Kunta" | "Hyvinvointialue";
 
@@ -28,6 +32,13 @@ interface LedgerProps {
   /** Friendly type label shown above the heading. */
   levelLabel: LedgerLevelLabel;
   loading?: boolean;
+  /** Formula value at this region (already framed). `null` when
+   *  no formula is active or this region had no data. */
+  formulaValue?: number | null;
+  /** Pretty-printed formula expression (e.g. "Kok % (EK 2023) - Kok % (EK 2019)"). */
+  formulaSummaryText?: string | null;
+  /** Active framing — affects the unit label and sign on display. */
+  framing?: FormulaFraming | null;
 }
 
 const NUM_FI = new Intl.NumberFormat("fi-FI");
@@ -37,6 +48,9 @@ export function Ledger({
   label,
   levelLabel,
   loading = false,
+  formulaValue = null,
+  formulaSummaryText = null,
+  framing = null,
 }: LedgerProps): JSX.Element {
   return (
     <aside
@@ -52,8 +66,85 @@ export function Ledger({
       }}
     >
       <Header label={label} levelLabel={levelLabel} result={result} loading={loading} />
+      {formulaSummaryText ? (
+        <FormulaValueBlock
+          value={formulaValue}
+          summaryText={formulaSummaryText}
+          framing={framing}
+        />
+      ) : null}
       <PartyShares result={result} loading={loading} />
     </aside>
+  );
+}
+
+/* ─── Formula value block ──────────────────────────────────── */
+
+function FormulaValueBlock({
+  value,
+  summaryText,
+  framing,
+}: {
+  value: number | null;
+  summaryText: string;
+  framing: FormulaFraming | null;
+}): JSX.Element {
+  const suffix = framing === "share" || framing === "vsSelected" ? "%" : "";
+  const sign = framing === "vsSelected" && value != null && value > 0 ? "+" : "";
+  const fmt = (v: number | null): string => {
+    if (v === null || !Number.isFinite(v)) return "—";
+    const a = Math.abs(v);
+    if (a >= 10_000) return `${(v / 1000).toFixed(1)}k${suffix}`;
+    if (a >= 100) return `${sign}${v.toFixed(0)}${suffix}`;
+    return `${sign}${v.toFixed(1)}${suffix}`;
+  };
+  const framingLabel =
+    framing === "share"
+      ? "% näkyvistä yhteensä"
+      : framing === "vsSelected"
+        ? "vs valittu alue"
+        : "raaka-arvo";
+
+  return (
+    <div
+      style={{
+        padding: "12px 18px",
+        borderBottom: "var(--border-default) dashed var(--hair)",
+        background: "#faf3df",
+      }}
+    >
+      <div
+        style={{
+          fontSize: 11,
+          opacity: 0.6,
+          textTransform: "uppercase",
+          letterSpacing: 0.5,
+          marginBottom: 4,
+        }}
+      >
+        Kaavan arvo
+      </div>
+      <div
+        style={{
+          fontSize: 11,
+          opacity: 0.75,
+          fontFamily: "var(--font-mono)",
+          marginBottom: 6,
+          wordBreak: "break-word",
+          lineHeight: 1.4,
+        }}
+      >
+        ƒ {summaryText}
+      </div>
+      <div style={{ display: "flex", alignItems: "baseline", gap: 10 }}>
+        <div className="h" style={{ fontSize: 36, lineHeight: 1 }}>
+          {fmt(value)}
+        </div>
+        <div style={{ fontSize: 11, opacity: 0.6, fontStyle: "italic" }}>
+          {framingLabel}
+        </div>
+      </div>
+    </div>
   );
 }
 
