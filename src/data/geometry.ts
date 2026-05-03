@@ -89,6 +89,74 @@ export interface ProjectedKuntaFeature extends ProjectedFeature {
   vp: string;
 }
 
+/** Generate a square grid of äänestysalue "polygons" sized to the
+ *  given count. We don't have real aa boundaries (and they shift
+ *  between elections anyway); the squares are honest about being
+ *  placeholders while still letting the drill-down render real data
+ *  per aa.
+ *
+ *  Layout: (cols × rows) where cols = ceil(sqrt(count)) so the grid
+ *  stays roughly square. Each cell has slight deterministic noise on
+ *  its corners so the squares read as hand-drawn rather than a pixel
+ *  grid. */
+export function makeAanestysalueet(
+  ids: ReadonlyArray<{ id: string; label?: string }>,
+): ProjectedFeature[] {
+  const count = ids.length;
+  if (count === 0) return [];
+  const cols = Math.ceil(Math.sqrt(count));
+  const rows = Math.ceil(count / cols);
+  const SIZE = 400;
+  const PAD = 14;
+  const inner = SIZE - PAD * 2;
+  const cw = inner / cols;
+  const ch = inner / rows;
+
+  const out: ProjectedFeature[] = [];
+  for (let idx = 0; idx < count; idx++) {
+    const i = idx % cols;
+    const j = Math.floor(idx / cols);
+    const rx = PAD + i * cw;
+    const ry = PAD + j * ch;
+    // Deterministic per-cell noise so the squares always render the
+    // same way for the same inputs (no flicker on re-render).
+    const item = ids[idx]!;
+    const seed = hashString(item.id) + idx;
+    const wobble = (n: number): number => {
+      const x = Math.sin(seed * 12.9898 + n * 31.17) * 43758.5;
+      return (x - Math.floor(x) - 0.5) * Math.min(cw, ch) * 0.08;
+    };
+    const pts = [
+      [rx + wobble(1), ry + wobble(2)],
+      [rx + cw + wobble(3), ry + wobble(4)],
+      [rx + cw + wobble(5), ry + ch + wobble(6)],
+      [rx + wobble(7), ry + ch + wobble(8)],
+    ] as Array<[number, number]>;
+    const d =
+      "M" +
+      pts.map((p) => `${p[0]!.toFixed(1)},${p[1]!.toFixed(1)}`).join(" L") +
+      " Z";
+    const area = cw * ch;
+    out.push({
+      id: item.id,
+      label:
+        item.label ??
+        `Äänestysalue ${String(idx + 1).padStart(3, "0")}`,
+      d,
+      cx: rx + cw / 2,
+      cy: ry + ch / 2,
+      area,
+    });
+  }
+  return out;
+}
+
+function hashString(s: string): number {
+  let h = 0;
+  for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) | 0;
+  return Math.abs(h);
+}
+
 export interface ProjectedGeometry {
   /** All 13 vaalipiirit, projected into the country viewBox. */
   vaalipiirit: ProjectedVpFeature[];
@@ -101,6 +169,9 @@ export interface ProjectedGeometry {
 
 /** Country viewBox the renderer should use as the SVG viewBox. */
 export const COUNTRY_VIEWBOX = "60 30 300 610" as const;
+
+/** ViewBox for the äänestysalue grid view. */
+export const AA_VIEWBOX = "0 0 400 400" as const;
 
 const COUNTRY_VB = { x: 60, y: 30, w: 300, h: 610 } as const;
 

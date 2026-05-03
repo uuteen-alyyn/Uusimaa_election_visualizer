@@ -21,7 +21,12 @@ import {
   type RegionResult,
 } from "../types/elections";
 
-export type LedgerLevelLabel = "Koko maa" | "Vaalipiiri" | "Kunta" | "Hyvinvointialue";
+export type LedgerLevelLabel =
+  | "Koko maa"
+  | "Vaalipiiri"
+  | "Kunta"
+  | "Hyvinvointialue"
+  | "Äänestysalue";
 
 interface LedgerProps {
   /** Region result to display. `null` while loading or when no

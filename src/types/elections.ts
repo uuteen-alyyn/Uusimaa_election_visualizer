@@ -73,6 +73,15 @@ export interface RegionResult {
   shares: Partial<Record<PartyId, number>>;
   /** Optional per-region top candidates, when fetched. */
   candidates?: Candidate[];
+  /** Set on äänestysalue rows: the 3-digit kuntakoodi the aa
+   *  belongs to. Used by `LocalFixtureSource.listAreas` to scope
+   *  the kunta → aa drill. */
+  parentKunta?: string;
+  /** Set on äänestysalue rows: the friendly label
+   *  (e.g. `"001 Eteläinen"`). The vp/kunta levels get their
+   *  labels from the geometry; aa labels live with the data
+   *  because we generate aa shapes client-side. */
+  label?: string;
 }
 
 /* ─── Workflows ────────────────────────────────────────────── */

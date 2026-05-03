@@ -16,13 +16,14 @@
 import { useMemo, useRef, useState } from "react";
 
 import {
+  AA_VIEWBOX,
   COUNTRY_VIEWBOX,
   type ProjectedFeature,
   type ProjectedGeometry,
 } from "../data/geometry";
 
 /** Subset of `AreaLevel` that the map actually renders. */
-export type DisplayLevel = "vp" | "kunta";
+export type DisplayLevel = "vp" | "kunta" | "aa";
 
 export interface HierarchyMapProps {
   /** Output of `loadGeometry()`. */
@@ -32,6 +33,11 @@ export interface HierarchyMapProps {
   /** When `level === "kunta"`, the parent vp's slug (`"hel"`,
    *  `"uus"`, …). Ignored at vp level. */
   parentSlug?: string | null;
+  /** When `level === "aa"`, the äänestysalue list (with their
+   *  pre-projected SVG paths from `makeAanestysalueet`).
+   *  Required for aa rendering — there's no real aa geometry,
+   *  the caller generates a square grid client-side. */
+  aaFeatures?: ReadonlyArray<ProjectedFeature> | null;
   /** Currently-selected region id (drawn with thick stroke). */
   selected: string | null;
   /** Caller-supplied per-region fill. Should return a CSS color
@@ -57,6 +63,7 @@ export function HierarchyMap({
   geometry,
   level,
   parentSlug = null,
+  aaFeatures = null,
   selected,
   getFill,
   getTooltip,
@@ -75,9 +82,12 @@ export function HierarchyMap({
     if (level === "vp") {
       return { regions: geometry.vaalipiirit, viewBox: VP_VIEWBOX };
     }
+    if (level === "aa") {
+      return { regions: aaFeatures ? [...aaFeatures] : [], viewBox: AA_VIEWBOX };
+    }
     const list = parentSlug ? (geometry.kunnat[parentSlug] ?? []) : [];
     return { regions: list, viewBox: KUNTA_VIEWBOX };
-  }, [geometry, level, parentSlug]);
+  }, [geometry, level, parentSlug, aaFeatures]);
 
   // Smart-label rule: at vp level every region gets a label;
   // at kunta level only the largest ~28% by area, plus selected/hovered.
@@ -125,7 +135,9 @@ export function HierarchyMap({
   const ariaLabel =
     level === "vp"
       ? "Suomen kartta, vaalipiirit. Käytä nuolinäppäimiä siirtyäksesi alueesta toiseen, Enter porautuaksesi sisään."
-      : "Vaalipiirin kunnat. Käytä nuolinäppäimiä siirtyäksesi alueesta toiseen.";
+      : level === "kunta"
+        ? "Vaalipiirin kunnat. Käytä nuolinäppäimiä siirtyäksesi alueesta toiseen, Enter porautuaksesi äänestysalueisiin."
+        : "Kunnan äänestysalueet (paikkamerkit). Käytä nuolinäppäimiä siirtyäksesi alueesta toiseen.";
 
   const focusedId = selected ?? hoverId;
   const focusedRegion = focusedId ? regions.find((r) => r.id === focusedId) : null;

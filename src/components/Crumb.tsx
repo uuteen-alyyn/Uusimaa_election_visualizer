@@ -7,54 +7,113 @@
  * navigation tree.
  */
 
-interface CrumbProps {
-  /** Label for the home pill (always shown). */
-  home: string;
-  /** When set, the drilled-in level's label is rendered as the
-   *  current heading. When null, the home pill is the current level. */
-  current?: string | null;
-  /** Click on the home pill — drill up to the country view. */
-  onHome: () => void;
+/** A single step in the breadcrumb. The last step (current
+ *  location) should omit `onClick`. */
+export interface CrumbStep {
+  label: string;
+  /** When set, the step renders as a clickable pill. When omitted,
+   *  it renders as the current-location heading. */
+  onClick?: () => void;
 }
 
-export function Crumb({ home, current, onHome }: CrumbProps): JSX.Element {
-  const homeIsActive = !current;
+interface CrumbProps {
+  steps: CrumbStep[];
+}
+
+export function Crumb({ steps }: CrumbProps): JSX.Element {
   return (
     <nav className="crumb" aria-label="Sijainti">
-      <span
-        className={"pill" + (homeIsActive ? " on" : "")}
-        style={{ cursor: "pointer", boxShadow: "var(--shadow-soft)" }}
-        onClick={onHome}
-        role="button"
-        tabIndex={0}
-        aria-label={current ? `Palaa ${home} -näkymään` : `${home} (nykyinen)`}
-        aria-current={homeIsActive ? "location" : undefined}
-        onKeyDown={(e) => {
-          if (e.key === "Enter" || e.key === " ") {
-            e.preventDefault();
-            onHome();
-          }
-        }}
-      >
-        <span style={{ fontSize: 12, opacity: 0.8 }} aria-hidden="true">
-          ⌂
-        </span>
-        {home}
-      </span>
-      {current ? (
-        <>
-          <span className="sep" aria-hidden="true">
-            ›
-          </span>
-          <span
-            className="h"
-            style={{ fontSize: 18, fontWeight: 700 }}
-            aria-current="location"
-          >
-            {current}
-          </span>
-        </>
-      ) : null}
+      {steps.map((step, i) => {
+        const isLast = i === steps.length - 1;
+        const isHome = i === 0;
+        const isClickable = !isLast && step.onClick != null;
+        return (
+          <Step
+            key={i}
+            label={step.label}
+            isLast={isLast}
+            isHome={isHome}
+            onClick={step.onClick}
+            showSep={i > 0}
+            isClickable={isClickable}
+          />
+        );
+      })}
     </nav>
+  );
+}
+
+function Step({
+  label,
+  isLast,
+  isHome,
+  onClick,
+  showSep,
+  isClickable,
+}: {
+  label: string;
+  isLast: boolean;
+  isHome: boolean;
+  onClick?: () => void;
+  showSep: boolean;
+  isClickable: boolean;
+}): JSX.Element {
+  const sep = showSep ? (
+    <span className="sep" aria-hidden="true">
+      ›
+    </span>
+  ) : null;
+
+  if (isLast) {
+    return (
+      <>
+        {sep}
+        <span
+          className="h"
+          style={{ fontSize: 18, fontWeight: 700 }}
+          aria-current="location"
+        >
+          {label}
+        </span>
+      </>
+    );
+  }
+
+  // Render as clickable pill. Home gets the ⌂ glyph.
+  return (
+    <>
+      {sep}
+      <span
+        className="pill"
+        style={{
+          cursor: isClickable ? "pointer" : "default",
+          boxShadow: "var(--shadow-soft)",
+          opacity: isClickable ? 1 : 0.8,
+        }}
+        onClick={isClickable ? onClick : undefined}
+        role={isClickable ? "button" : undefined}
+        tabIndex={isClickable ? 0 : undefined}
+        aria-label={
+          isClickable ? `Palaa ${label}-näkymään` : label
+        }
+        onKeyDown={
+          isClickable
+            ? (e) => {
+                if (e.key === "Enter" || e.key === " ") {
+                  e.preventDefault();
+                  onClick?.();
+                }
+              }
+            : undefined
+        }
+      >
+        {isHome ? (
+          <span style={{ fontSize: 12, opacity: 0.8 }} aria-hidden="true">
+            ⌂
+          </span>
+        ) : null}
+        {label}
+      </span>
+    </>
   );
 }

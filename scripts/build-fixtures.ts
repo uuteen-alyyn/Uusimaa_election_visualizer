@@ -170,7 +170,8 @@ function aggregateRows(
     if (
       r.area_level !== "vaalipiiri" &&
       r.area_level !== "kunta" &&
-      r.area_level !== "hyvinvointialue"
+      r.area_level !== "hyvinvointialue" &&
+      r.area_level !== "aanestysalue"
     ) {
       continue;
     }
@@ -199,16 +200,50 @@ function aggregateRows(
       // already collapse these, but defensive sum is cheap.
       shares[key] = (shares[key] ?? 0) + (r.vote_share ?? 0);
     }
-    out.push({
+
+    const result: RegionResult = {
       regionId: canonicalizeAreaId(first.area_id),
       electionId,
       votes: totalVotes,
-      voters: 0, // TODO Phase 1.x: fetch from turnout_by_aanestysalue table
+      voters: 0,
       turnout: 0,
       shares,
-    });
+    };
+
+    if (first.area_level === "aanestysalue") {
+      const parentKunta = parseParentKunta(first.area_id);
+      if (parentKunta) result.parentKunta = parentKunta;
+      // Carry the friendly label (e.g. "001 Eteläinen") through —
+      // the front-end has no geometry for äänestysalueet, so the
+      // label has to ride on the data row.
+      if (first.area_name) result.label = first.area_name;
+      // For aa rows, keep the full PxWeb code as regionId
+      // (canonicalize would have stripped the wrong things);
+      // they're unique already so no canonicalisation needed.
+      result.regionId = first.area_id;
+    }
+
+    out.push(result);
   }
   return out;
+}
+
+/** Extract the 3-digit kuntakoodi from an aa code.
+ *
+ *  - vp_ku_prefix format (parliamentary 13t2, municipal 14vm,
+ *    EU 14h2): `01091001A` → vp 01 + kunta 091 + aa 001A → "091"
+ *  - vp_prefix format (regional 14y2): `091001A` → kunta 091 +
+ *    aa 001A → "091"
+ *
+ *  Returns null for codes that don't match either shape. */
+function parseParentKunta(aaCode: string): string | null {
+  // vp_ku_prefix: 2-digit vp + 3-digit kunta + …
+  const m1 = /^\d{2}(\d{3})/.exec(aaCode);
+  if (m1) return m1[1] ?? null;
+  // vp_prefix: 3-digit kunta + …
+  const m2 = /^(\d{3})\D/.exec(aaCode);
+  if (m2) return m2[1] ?? null;
+  return null;
 }
 
 /* ─── Per-election builder ─────────────────────────────────── */

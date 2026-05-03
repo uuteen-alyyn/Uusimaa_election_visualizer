@@ -39,6 +39,7 @@ import { loadGeometry, type ProjectedGeometry } from "./data/geometry";
 
 import { aggregateRegions } from "./lib/aggregate";
 import { fillForRegion } from "./lib/color-ramps";
+import { makeAanestysalueet } from "./data/geometry";
 import {
   downloadDashboardPng,
   downloadMapPng,
@@ -279,7 +280,12 @@ export function App(): JSX.Element {
 
   // Map navigation.
   const [level, setLevel] = useState<DisplayLevel>("vp");
+  /** When level === "kunta": the parent vp's slug.
+   *  When level === "aa": still the parent vp's slug (we need it to
+   *  build the breadcrumb back through kunta). */
   const [parentSlug, setParentSlug] = useState<string | null>(null);
+  /** When level === "aa": the kunta's 3-digit code. */
+  const [parentKunta, setParentKunta] = useState<string | null>(null);
   const [selected, setSelected] = useState<string | null>(null);
 
   // Refs for export targets.
@@ -433,14 +439,43 @@ export function App(): JSX.Element {
 
   /* ─── Formula range across visible regions ─────────────── */
 
-  // Region IDs we color in the current map view (vp at country
-  // level, kuntat-of-vp when drilled in).
+  // Async load of äänestysalue rows for the currently-drilled kunta.
+  // Empty when level !== "aa" or the fixture has no aa data for
+  // the current election (only year-specific tables include aa).
+  const [aaResults, setAaResults] = useState<RegionResult[]>([]);
+  useEffect(() => {
+    if (level !== "aa" || !parentKunta) {
+      setAaResults([]);
+      return;
+    }
+    let cancelled = false;
+    void source.listAreas("aa", parentKunta, election).then((rows) => {
+      if (!cancelled) setAaResults(rows);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [source, level, parentKunta, election]);
+
+  /** Generated square-grid äänestysalue features, sized to the
+   *  kunta's actual aa count. */
+  const aaFeatures = useMemo(() => {
+    if (level !== "aa" || aaResults.length === 0) return null;
+    return makeAanestysalueet(
+      aaResults.map((r) => ({ id: r.regionId, label: r.label })),
+    );
+  }, [level, aaResults]);
+
+  // Region IDs we color in the current map view.
   const visibleRegionIds = useMemo<string[]>(() => {
     if (!geometry) return [];
     if (level === "vp") return geometry.vaalipiirit.map((v) => v.id);
-    if (parentSlug) return (geometry.kunnat[parentSlug] ?? []).map((k) => k.id);
+    if (level === "kunta" && parentSlug) {
+      return (geometry.kunnat[parentSlug] ?? []).map((k) => k.id);
+    }
+    if (level === "aa") return aaResults.map((r) => r.regionId);
     return [];
-  }, [geometry, level, parentSlug]);
+  }, [geometry, level, parentSlug, aaResults]);
 
   const formulaRange = useMemo(() => {
     if (mode !== "formula" || resolvedFormula.length === 0) return null;
@@ -536,9 +571,19 @@ export function App(): JSX.Element {
 
   /* ─── Map fill ──────────────────────────────────────────── */
 
+  /** Map region-id → result for whatever level we're showing.
+   *  At vp/kunta level it's `currentResults`; at aa level we
+   *  also merge `aaResults` since those rows aren't in the
+   *  vp+kunta map. */
+  const aaById = useMemo(
+    () => new Map(aaResults.map((r) => [r.regionId, r])),
+    [aaResults],
+  );
+
   const getFill = useCallback(
     (regionId: string): string => {
-      const result = currentResults?.get(regionId) ?? null;
+      const result =
+        currentResults?.get(regionId) ?? aaById.get(regionId) ?? null;
       const refResult = refResults?.get(regionId) ?? null;
       const formulaValue = formulaValueByRegion.get(regionId) ?? null;
       return fillForRegion(result, mode, {
@@ -553,6 +598,7 @@ export function App(): JSX.Element {
     },
     [
       currentResults,
+      aaById,
       refResults,
       mode,
       focusParty,
@@ -568,7 +614,7 @@ export function App(): JSX.Element {
 
   const getTooltip = useCallback(
     (regionId: string, label: string): string => {
-      const result = currentResults?.get(regionId);
+      const result = currentResults?.get(regionId) ?? aaById.get(regionId);
       if (!result) return `${label} — Ei tietoja`;
       switch (mode) {
         case "winner": {
@@ -611,7 +657,7 @@ export function App(): JSX.Element {
         }
       }
     },
-    [currentResults, refResults, mode, focusParty, formulaValueByRegion, framing],
+    [currentResults, aaById, refResults, mode, focusParty, formulaValueByRegion, framing],
   );
 
   /* ─── Legend inputs ────────────────────────────────────── */
@@ -650,18 +696,40 @@ export function App(): JSX.Element {
   const onPick = useCallback((id: string) => setSelected(id), []);
   const onZoomIn = useCallback(
     (id: string) => {
-      if (level !== "vp" || !geometry) return;
-      const vp = geometry.vaalipiirit.find((v) => v.id === id);
-      if (!vp) return;
-      setLevel("kunta");
-      setParentSlug(vp.slug);
-      setSelected(null);
+      if (!geometry) return;
+      if (level === "vp") {
+        const vp = geometry.vaalipiirit.find((v) => v.id === id);
+        if (!vp) return;
+        setLevel("kunta");
+        setParentSlug(vp.slug);
+        setParentKunta(null);
+        setSelected(null);
+        return;
+      }
+      if (level === "kunta") {
+        // Drill into a kunta's äänestysalueet. Only works for the
+        // 4 elections whose year-specific tables expose aa rows
+        // (ek2023, kunta2025, alue2025, eu2024). Other elections
+        // produce an empty aa list and the user sees "no data".
+        setLevel("aa");
+        setParentKunta(id);
+        setSelected(null);
+        return;
+      }
     },
     [level, geometry],
   );
-  const drillUp = useCallback(() => {
+
+  const drillUpToCountry = useCallback(() => {
     setLevel("vp");
     setParentSlug(null);
+    setParentKunta(null);
+    setSelected(null);
+  }, []);
+
+  const drillUpToVp = useCallback(() => {
+    setLevel("kunta");
+    setParentKunta(null);
     setSelected(null);
   }, []);
 
@@ -706,9 +774,30 @@ export function App(): JSX.Element {
   }, []);
 
   const parentVp =
-    level === "kunta" && parentSlug && geometry
+    (level === "kunta" || level === "aa") && parentSlug && geometry
       ? geometry.vaalipiirit.find((v) => v.slug === parentSlug)
       : null;
+  const parentKuntaFeature =
+    level === "aa" && parentKunta && geometry && parentSlug
+      ? geometry.kunnat[parentSlug]?.find((k) => k.id === parentKunta)
+      : null;
+
+  /* ─── Crumb steps ──────────────────────────────────────── */
+  const crumbSteps = useMemo(() => {
+    const steps: Array<{ label: string; onClick?: () => void }> = [];
+    if (level === "vp") {
+      steps.push({ label: "Koko Suomi" });
+    } else if (level === "kunta") {
+      steps.push({ label: "Koko Suomi", onClick: drillUpToCountry });
+      steps.push({ label: parentVp?.label ?? "Vaalipiiri" });
+    } else {
+      // aa
+      steps.push({ label: "Koko Suomi", onClick: drillUpToCountry });
+      steps.push({ label: parentVp?.label ?? "Vaalipiiri", onClick: drillUpToVp });
+      steps.push({ label: parentKuntaFeature?.label ?? "Kunta" });
+    }
+    return steps;
+  }, [level, parentVp, parentKuntaFeature, drillUpToCountry, drillUpToVp]);
 
   /* ─── Ledger inputs ─────────────────────────────────────── */
 
@@ -733,7 +822,8 @@ export function App(): JSX.Element {
       return { result: null, label: "Koko Suomi", levelLabel: "Koko maa", ...formulaInfo };
     }
     if (selected) {
-      const result = currentResults.get(selected) ?? null;
+      const result =
+        currentResults.get(selected) ?? aaById.get(selected) ?? null;
       if (level === "vp" && geometry) {
         const vp = geometry.vaalipiirit.find((v) => v.id === selected);
         return { result, label: vp?.label ?? selected, levelLabel: "Vaalipiiri", ...formulaInfo };
@@ -742,7 +832,26 @@ export function App(): JSX.Element {
         const k = geometry.kunnat[parentSlug]?.find((x) => x.id === selected);
         return { result, label: k?.label ?? selected, levelLabel: "Kunta", ...formulaInfo };
       }
+      if (level === "aa") {
+        const aa = aaResults.find((r) => r.regionId === selected);
+        return {
+          result,
+          label: aa?.label ?? selected,
+          levelLabel: "Äänestysalue",
+          ...formulaInfo,
+        };
+      }
       return { result, label: selected, levelLabel: "Vaalipiiri", ...formulaInfo };
+    }
+    if (level === "aa" && parentKuntaFeature) {
+      // No aa selected — show the parent kunta's totals.
+      const result = currentResults.get(parentKuntaFeature.id) ?? null;
+      return {
+        result,
+        label: parentKuntaFeature.label,
+        levelLabel: "Kunta",
+        ...formulaInfo,
+      };
     }
     if (level === "kunta" && parentVp) {
       const result = currentResults.get(parentVp.id) ?? null;
@@ -763,10 +872,13 @@ export function App(): JSX.Element {
     };
   }, [
     currentResults,
+    aaById,
+    aaResults,
     selected,
     level,
     parentSlug,
     parentVp,
+    parentKuntaFeature,
     geometry,
     election,
     mode,
@@ -804,7 +916,7 @@ export function App(): JSX.Element {
       </a>
       <header>
         <h1>Vaalit — tulosvisualisointi</h1>
-        <Crumb home="Koko Suomi" current={parentVp?.label ?? null} onHome={drillUp} />
+        <Crumb steps={crumbSteps} />
       </header>
 
       <section
@@ -929,12 +1041,19 @@ export function App(): JSX.Element {
         >
           {dataLoading || !geometry ? (
             <LoadingStamp electionLabel={electionLabel} />
+          ) : level === "aa" && aaFeatures == null ? (
+            <NoAaData
+              electionLabel={electionLabel}
+              kuntaLabel={parentKuntaFeature?.label ?? null}
+              onBack={drillUpToVp}
+            />
           ) : (
             <>
               <HierarchyMap
                 geometry={geometry}
                 level={level}
                 parentSlug={parentSlug}
+                aaFeatures={aaFeatures}
                 selected={selected}
                 getFill={getFill}
                 getTooltip={getTooltip}
@@ -1039,6 +1158,76 @@ export function App(): JSX.Element {
 }
 
 /* ─── Param-row helpers ──────────────────────────────────── */
+
+function NoAaData({
+  electionLabel,
+  kuntaLabel,
+  onBack,
+}: {
+  electionLabel: string;
+  kuntaLabel: string | null;
+  onBack: () => void;
+}): JSX.Element {
+  return (
+    <div
+      role="status"
+      style={{
+        height: 640,
+        width: 520,
+        display: "flex",
+        flexDirection: "column",
+        alignItems: "center",
+        justifyContent: "center",
+        gap: 14,
+        textAlign: "center",
+        padding: 32,
+      }}
+    >
+      <div
+        style={{
+          border: "2px dashed rgba(0,0,0,0.35)",
+          padding: "16px 22px",
+          borderRadius: "var(--radius-card)",
+          fontFamily: "var(--font-display)",
+          fontSize: 22,
+          color: "rgba(0,0,0,0.55)",
+          transform: "rotate(-2deg)",
+          background: "rgba(251,249,244,0.7)",
+          maxWidth: 360,
+        }}
+      >
+        Äänestysaluetietoja ei ole saatavilla
+        {kuntaLabel ? ` kunnalle ${kuntaLabel}` : ""} vaalille {electionLabel}.
+      </div>
+      <div style={{ fontSize: 12, opacity: 0.6, maxWidth: 360 }}>
+        Tilastokeskuksen vuosittaiset taulukot tarjoavat
+        äänestysalue&shy;tason datan vain osalle vaaleja
+        (eduskuntavaalit&nbsp;2023, kuntavaalit&nbsp;2025,
+        aluevaalit&nbsp;2025, eurovaalit&nbsp;2024).
+      </div>
+      <span
+        className="pill"
+        onClick={onBack}
+        role="button"
+        tabIndex={0}
+        onKeyDown={(e) => {
+          if (e.key === "Enter" || e.key === " ") {
+            e.preventDefault();
+            onBack();
+          }
+        }}
+        style={{
+          cursor: "pointer",
+          fontSize: 12,
+          background: "var(--paper)",
+          boxShadow: "var(--shadow-soft)",
+        }}
+      >
+        ← Takaisin kuntiin
+      </span>
+    </div>
+  );
+}
 
 function LoadingStamp({ electionLabel }: { electionLabel: string }): JSX.Element {
   return (
