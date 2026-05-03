@@ -215,15 +215,15 @@ vaalipiiri.
         *(`formula` mode stub returns NEUTRAL_FILL — Phase 3 wires
          the evaluator)*
   - [ ] Diverging vs single-hue auto-pick for formula *(Phase 3)*
-- [ ] Port `HierarchyMap` from
+- [x] Port `HierarchyMap` from
       [prototype/wf-map.jsx](prototype/wf-map.jsx) →
       `src/components/HierarchyMap.tsx`:
-  - [ ] Real-geometry SVG paths
-  - [ ] Hover/select stroke widths + transitions
-  - [ ] Smart-label rule (top ~28% by area at kunta level)
-- [ ] Wire `LocalFixtureSource` → `HierarchyMap` for `winner` mode
+  - [x] Real-geometry SVG paths
+  - [x] Hover/select stroke widths + transitions
+  - [x] Smart-label rule (top ~28% by area at kunta level)
+- [x] Wire `LocalFixtureSource` → `HierarchyMap` for `winner` mode
       against `ek2023`
-- [ ] Drill-down: country → vp → kunta works with real boundaries
+- [x] Drill-down: country → vp → kunta works with real boundaries
 - [x] Vitest tests:
   - [x] `geometry.test.ts`: projection determinism, COUNTRY_VIEWBOX
         round-trip, projectGeometry end-to-end (17 tests)

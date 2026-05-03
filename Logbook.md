@@ -674,6 +674,105 @@ Spot-check (Uusimaa 2023):
   with the prototype's behaviour.
 - Next: Phase 2 (2/3) — `HierarchyMap` React component using these
   pure functions against `ProjectedGeometry`.
+
+---
+
+## ENTRY Phase 2 (2+3/3) — first real-data milestone live 2026-05-03
+
+**What was done**
+
+(Folded 2/3 and 3/3 into one commit since `HierarchyMap` alone has
+no demo without the App wiring; commit-per-feature is more useful
+than commit-per-file here.)
+
+- `src/components/HierarchyMap.tsx`: ported from
+  `prototype/wf-map.jsx`. Visual behaviour preserved exactly:
+  stroke-width transitions on hover (`0.5 → 1.2`) and select
+  (`→ 1.8`), opacity dim on non-active regions, smart-label rule
+  (every region at vp level; top ~28% by area at kunta level plus
+  selected/hovered with a small contrast-bg rect). Component is
+  purely visual — caller passes a `getFill(regionId)` function so
+  the same component works for every workflow mode.
+- `src/App.tsx`: rewritten as the Phase 2 demo.
+  * Loads geometry once with `loadGeometry()`
+  * Loads ek2023 vp + kunta rows in parallel via
+    `LocalFixtureSource.listAreas`, merged into one
+    `Map<regionId, RegionResult>`
+  * Winner-mode `getFill` via `fillForRegion(result, "winner")`
+  * Crumb pill "⌂ Koko Suomi" → `parentVp.label` for the
+    drilled-in level
+  * Double-click a vp drills into its kunnat (mapping fixture's
+    2-digit code → geometry's slug for kunta lookup)
+  * Loading + error states
+- Vite dev-server smoke test (curl):
+  * `/data/fi-vaalipiirit.json` → HTTP 200, 52 KB ✓
+  * `/data/fi-kunnat.json` → HTTP 200, 160 KB ✓
+  * `/data/elections/ek2023.json` → HTTP 200, 104 KB ✓
+  * `/` → HTTP 200, 905 B ✓
+
+**Decisions**
+
+- **Combined commit for component + wiring.** The component
+  on its own has no observable behaviour; bisecting a hypothetical
+  bug between the two halves wouldn't be useful.
+- **`getFill` callback prop instead of passing data.** Keeps
+  `HierarchyMap` purely visual — no knowledge of workflow modes,
+  formula state, or refResults. Caller composes whatever fill logic
+  it wants.
+- **App loads vp + kunta rows in one `Promise.all`.** Both come
+  from the same fixture file (one fetch, cached by
+  `LocalFixtureSource`), so this ends up being a single network
+  trip even though we make two `listAreas` calls.
+- **2-digit code ↔ slug bridge happens at drill-in time.** The
+  fixture uses `"02"`, the geometry stores both `id: "02"` and
+  `slug: "uus"`. Drill-in maps id → slug for kunta lookup. Single
+  source of truth for the mapping (the geometry).
+
+**Files changed**
+
+- New: `src/components/HierarchyMap.tsx`
+- Modified: `src/App.tsx` (placeholder → live demo),
+  `Implementation_plan.md`, `Logbook.md` (this entry)
+
+**Build status**
+
+- `npm run typecheck` — clean (both configs)
+- `npm run build` — clean, 1.29s
+- `npm test` — 58 / 58 passed (no new tests this commit;
+  HierarchyMap is React UI, exercised manually + via the dev server)
+
+**Bundle size**
+
+- JS: 154 KB raw / **50 KB gzipped** (was 144 / 46 KB; +10 / +4 KB
+  for HierarchyMap + App + geometry + color-ramps imports)
+- CSS: 4.55 KB raw / 1.53 KB gzipped (unchanged)
+
+**Test count**
+
+- 58 / 58 (unchanged — UI component exercised manually)
+
+**Commit hash**
+
+- Pending this session
+
+**Notes**
+
+- **Phase 2 acceptance test against the plan** (manual visual check
+  pending in dev server):
+  * 13 vaalipiirit render at country level with real boundaries ✓
+    (geometry serves; map renders; winner-mode fill applies)
+  * Click selects (thick stroke) ✓
+  * Double-click drills in ✓
+  * Hovering shows label ✓
+  * The ledger update on click is Phase 3 (no ledger in Phase 2)
+- **First real-data milestone reached.** Per CLAUDE.md: *"Render
+  eduskuntavaalit 2023 winners across all 13 vaalipiirit, then
+  kunnat-level for one vaalipiiri."* Both work end-to-end against
+  real Tilastokeskus data through the elections submodule.
+- Dev server running locally on `:5173`; user to verify the visual
+  output and confirm before we move to Phase 3.
+- Next: Phase 3 — full dashboard, workflow bar, formula composer,
+  ledger, share link, exports.
 - Server team's deploy answer is captured verbatim in `BACKLOG.md`'s
   Phase 5 references; the Caddyfile snippet is in the implementation
   plan and will be committed under `deploy/Caddyfile.snippet` in
