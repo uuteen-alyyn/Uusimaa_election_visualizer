@@ -825,3 +825,41 @@ Went with the primary yellow because:
   Phase 5 references; the Caddyfile snippet is in the implementation
   plan and will be committed under `deploy/Caddyfile.snippet` in
   Phase 5.
+
+---
+
+## ENTRY fix: VAS party color → dark magenta / raspberry 2026-05-03
+
+**What was done**
+
+- Changed `--p-vas` from `#c94a2a` (red-orange) to `#9c2e7b` (dark
+  magenta) in `src/styles/tokens.css`.
+
+**Why**
+
+User asked for VAS to be "violet / lila / dark pink". The
+prototype's red-orange shared too much hue with SDP's red `#d94a4a`
+and VAS's brand has been drifting away from straight red toward
+warmer pinks anyway.
+
+`#9c2e7b` lands in the magenta-pink hue range (~318°) which:
+- Reads as "dark pink" / "violetti" / "lila" depending on the
+  viewer's color vocabulary
+- Stays ~40° away in hue from `--ramp-change-1: #6a2c91` (the
+  deep-purple loss end of the diverging change ramp), so winner-mode
+  and change-mode legends won't read as the same color
+- Is well separated from SDP red (much lower hue) and KOK blue
+
+**Files changed**
+
+- `src/styles/tokens.css`
+
+**Build status**
+
+- `npm run typecheck` — clean
+- `npm run build` — clean, 50 KB gz JS
+- `npm test` — 58 / 58 passed
+
+**Commit hash**
+
+- Pending this session

@@ -29,7 +29,12 @@
      more orange / less saturation than PS's pure yellow. */
   --p-ps: #ffeb00;
   --p-vihr: #4a9c3a;
-  --p-vas: #c94a2a;
+  /* VAS was #c94a2a (red-orange) — too close to SDP's red on the
+     map. Switched to a dark magenta/raspberry that reads as
+     "violetti / lila / dark pink" while staying distinct from the
+     ramp-change-1 deep purple (#6a2c91, hue ~278°) — this is
+     hue ~318°, ~40° away in hue space. */
+  --p-vas: #9c2e7b;
   --p-rkp: #e8b84a;
   --p-kd: #4a6aa0;
 
