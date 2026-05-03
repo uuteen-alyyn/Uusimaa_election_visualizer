@@ -199,19 +199,22 @@ RegionResult` against fixtures.
 2023 winners across all 13 vaalipiirit, then kunnat-level for one
 vaalipiiri.
 
-- [ ] Port [prototype/wf-geo.jsx](prototype/wf-geo.jsx) →
+- [x] Port [prototype/wf-geo.jsx](prototype/wf-geo.jsx) →
       `src/data/geometry.ts`:
-  - [ ] Replace synchronous XHR with async `fetch('/data/fi-*.json')`
-  - [ ] Same equirectangular projection (LON 19.3..31.7, LAT 59.7..70.1,
+  - [x] Replace synchronous XHR with async `fetch('/data/fi-*.json')`
+        (geometry copied from `/data/` → `/public/data/` by the
+        prefetch script)
+  - [x] Same equirectangular projection (LON 19.3..31.7, LAT 59.7..70.1,
         COS_LAT-corrected)
-  - [ ] Same per-vaalipiiri local projector for kunta drill-down
-  - [ ] Comment Vaasa-905 island edge case (per `PRODUCT_NOTES.md`)
-- [ ] Port `fillForRegion` from
+  - [x] Same per-vaalipiiri local projector for kunta drill-down
+  - [x] Comment Vaasa-905 island edge case (per `PRODUCT_NOTES.md`)
+- [x] Port `fillForRegion` from
       [prototype/wf-map.jsx:309](prototype/wf-map.jsx#L309) →
       `src/lib/color-ramps.ts`:
-  - [ ] Same thresholds for `winner`, `support`, `votes`, `change`,
-        `formula` modes
-  - [ ] Diverging vs single-hue auto-pick for formula
+  - [x] Same thresholds for `winner`, `support`, `votes`, `change` modes
+        *(`formula` mode stub returns NEUTRAL_FILL — Phase 3 wires
+         the evaluator)*
+  - [ ] Diverging vs single-hue auto-pick for formula *(Phase 3)*
 - [ ] Port `HierarchyMap` from
       [prototype/wf-map.jsx](prototype/wf-map.jsx) →
       `src/components/HierarchyMap.tsx`:
@@ -221,10 +224,11 @@ vaalipiiri.
 - [ ] Wire `LocalFixtureSource` → `HierarchyMap` for `winner` mode
       against `ek2023`
 - [ ] Drill-down: country → vp → kunta works with real boundaries
-- [ ] Vitest tests:
-  - [ ] `geometry.test.ts`: projection determinism, COUNTRY_VIEWBOX
-        round-trip, Vaasa-905 specifically
-  - [ ] `color-ramps.test.ts`: each mode's threshold boundaries
+- [x] Vitest tests:
+  - [x] `geometry.test.ts`: projection determinism, COUNTRY_VIEWBOX
+        round-trip, projectGeometry end-to-end (17 tests)
+  - [x] `color-ramps.test.ts`: each mode's threshold boundaries
+        (19 tests)
 
 **Acceptance test:**
 - Open `npm run dev` → 13 vaalipiirit colored by 2023 winner with real

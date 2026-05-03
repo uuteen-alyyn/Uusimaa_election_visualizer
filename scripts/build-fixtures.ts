@@ -25,7 +25,7 @@
  * candidate lists are deferred to follow-up phases (see BACKLOG.md).
  */
 
-import { mkdir, writeFile } from "node:fs/promises";
+import { copyFile, mkdir, writeFile } from "node:fs/promises";
 import { resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -176,10 +176,25 @@ async function buildFixture(
 /* ─── Main ──────────────────────────────────────────────────── */
 
 const SCRIPT_DIR = dirname(fileURLToPath(import.meta.url));
-const OUT_DIR = resolve(SCRIPT_DIR, "../public/data/elections");
+const REPO_ROOT = resolve(SCRIPT_DIR, "..");
+const OUT_DIR = resolve(REPO_ROOT, "public/data/elections");
+const PUBLIC_DATA = resolve(REPO_ROOT, "public/data");
+const GEOMETRY_FILES = ["fi-vaalipiirit.json", "fi-kunnat.json"];
 const SIZE_BUDGET_BYTES = 10 * 1024 * 1024;
 
+/** Copy geometry files from `/data/` (source of truth) into
+ *  `/public/data/` so Vite serves them at `/data/fi-*.json`. The
+ *  prototype keeps its own copy under `data/` for file:// loading. */
+async function copyGeometry(): Promise<void> {
+  await mkdir(PUBLIC_DATA, { recursive: true });
+  for (const f of GEOMETRY_FILES) {
+    await copyFile(resolve(REPO_ROOT, "data", f), resolve(PUBLIC_DATA, f));
+  }
+  console.log(`[prefetch] copied ${GEOMETRY_FILES.length} geometry files into public/data/`);
+}
+
 async function main(): Promise<void> {
+  await copyGeometry();
   await mkdir(OUT_DIR, { recursive: true });
   console.log(`[prefetch] writing fixtures to ${OUT_DIR}`);
 

@@ -579,6 +579,101 @@ Spot-check (Uusimaa 2023):
 - Next: Phase 2 — geometry + map. First real-data milestone:
   render eduskuntavaalit 2023 winners across all 13 vaalipiirit
   with real boundaries.
+
+---
+
+## ENTRY Phase 2 (1/3) — geometry + color-ramps pure functions 2026-05-03
+
+**What was done**
+
+- `src/data/geometry.ts`: faithful TS port of `prototype/wf-geo.jsx`.
+  Same equirectangular projection (LON 19.3..31.7, LAT 59.7..70.1,
+  COS_LAT correction), same `60 30 300 610` country viewBox, same
+  per-vaalipiiri local projector for kunta drill-down (12px padding
+  in a 0..400 box). Async `loadGeometry()` wraps a synchronous
+  `projectGeometry(vpJson, kuJson)` core so tests can feed inline
+  fixtures without mocking fetch. Vp output `id` is the 2-digit
+  `code` so it joins directly to the data fixture's `regionId`;
+  `slug` (`"hel"`, `"uus"`, …) is preserved for kunta-group lookup.
+- `src/lib/color-ramps.ts`: `fillForRegion(result, mode, options)` —
+  pure function (caller passes the row, no internal data fetch).
+  Thresholds preserved verbatim from `prototype/wf-map.jsx:309`:
+  * winner → `var(--p-{slug})`
+  * support → 6-bucket cream→blue ramp (<10, <17, <23, <30, <38, ≥38)
+  * votes → 5-bucket cream→ochre ramp (<20k, <50k, <100k, <200k, ≥200k)
+  * change → 5-bucket purple↔orange diverging (≤-4, ≤-1.5, ≤1.5, ≤4, >4)
+  * formula → `NEUTRAL_FILL` stub (Phase 3 wires the evaluator)
+  Returns `NEUTRAL_FILL` for null inputs and missing-data paths
+  (e.g. focusParty absent from one side of `change`).
+- `scripts/build-fixtures.ts`: also copies `data/fi-*.json` into
+  `public/data/` so Vite serves them at `/data/fi-*.json`.
+  `.gitignore` adds the copies (single source of truth in `data/`).
+- Tests:
+  * `geometry.test.ts` — 17 tests: projection determinism,
+    monotonicity (north → smaller y, east → larger x), local
+    projector padding, geomToPath format (Polygon and MultiPolygon),
+    bboxOfGeom, bestCentroid, full projectGeometry against an inline
+    Uusimaa-shaped fixture
+  * `color-ramps.test.ts` — 19 tests: pickWinner including
+    alphabetical tie-break, all four modes' threshold boundaries,
+    pointChange, every NEUTRAL_FILL fallback path
+
+**Decisions**
+
+- **Geometry data lives in `data/` (source) and is copied to
+  `public/data/` at prefetch time.** Avoids breaking the prototype
+  (which reads from `data/` over file://) while letting Vite serve
+  the same files at `/data/...` from `public/`. Both sides gitignored
+  except the source.
+- **`projectGeometry` separated from `loadGeometry`.** The pure
+  synchronous core is what tests exercise; `loadGeometry` is just
+  fetch + JSON.parse + delegate. Keeps tests dependency-free.
+- **Color-ramp signature is `(result, mode, options)`.** Different
+  from the prototype's `(id, mode, focusParty, extra)` — the result
+  is passed in directly so we don't need a "data getter" closure.
+  Simpler to test, simpler to reason about.
+- **`pickWinner` ties broken alphabetically** (sort by party id, then
+  pick first one with the max share). Deterministic across runs;
+  the prototype's `Math.max(...d.shares)` is order-dependent.
+- **Vp `id` in projected output is the 2-digit code (`"02"` for
+  Uusimaa), not the slug.** Matches the regionId in our data
+  fixtures so binding data → geometry is a direct join. Slug stays
+  available as `slug` for kunta-group lookup.
+
+**Files changed**
+
+- New: `src/data/geometry.ts`, `src/data/geometry.test.ts`,
+  `src/lib/color-ramps.ts`, `src/lib/color-ramps.test.ts`
+- Modified: `scripts/build-fixtures.ts` (copyGeometry step),
+  `.gitignore` (geometry copies), `Implementation_plan.md`,
+  `Logbook.md` (this entry)
+- New (gitignored): `public/data/fi-vaalipiirit.json` and
+  `public/data/fi-kunnat.json` (build artifact: copied from `data/`)
+
+**Build status**
+
+- `npm run typecheck` — clean (both configs)
+- `npm run build` — clean, 1.38s, 46 KB gz JS, 1.53 KB gz CSS
+- `npm test` — **58 / 58 passed** (4 test files: share-state,
+  elections-source, geometry, color-ramps)
+
+**Test count**
+
+- 58 / 58 (was 22 → +36 new in this commit)
+
+**Commit hash**
+
+- Pending this session
+
+**Notes**
+
+- Three test failures during dev surfaced bugs in *my expectations*,
+  not the code: `geomToPath` emits `"L10.0"` (no space, matching
+  prototype byte-for-byte), and the support / change ramp boundaries
+  are exclusive on the upper bound. Fixed by aligning expectations
+  with the prototype's behaviour.
+- Next: Phase 2 (2/3) — `HierarchyMap` React component using these
+  pure functions against `ProjectedGeometry`.
 - Server team's deploy answer is captured verbatim in `BACKLOG.md`'s
   Phase 5 references; the Caddyfile snippet is in the implementation
   plan and will be committed under `deploy/Caddyfile.snippet` in
