@@ -800,48 +800,21 @@ export function App(): JSX.Element {
         aria-label="Tarkastelutyyli ja parametrit"
         style={{ display: "flex", flexDirection: "column", gap: 8 }}
       >
-        <div
-          style={{
-            display: "flex",
-            gap: 12,
-            alignItems: "flex-start",
-            flexWrap: "wrap",
+        <WorkflowBar
+          builtins={BUILTIN_WORKFLOWS}
+          customs={customWorkflows}
+          activeWorkflow={activeWorkflow}
+          onApply={applyWorkflow}
+          onOpenBuilder={() => {
+            setEditingWorkflow(null);
+            setBuilderOpen(true);
           }}
-        >
-          <div style={{ flex: 1, minWidth: 0 }}>
-            <WorkflowBar
-              builtins={BUILTIN_WORKFLOWS}
-              customs={customWorkflows}
-              activeWorkflow={activeWorkflow}
-              onApply={applyWorkflow}
-              onOpenBuilder={() => {
-                setEditingWorkflow(null);
-                setBuilderOpen(true);
-              }}
-              onEdit={(w) => {
-                setEditingWorkflow(w);
-                setBuilderOpen(true);
-              }}
-              onDelete={deleteWorkflow}
-            />
-          </div>
-          <div
-            style={{
-              display: "flex",
-              gap: 6,
-              alignItems: "center",
-              flexShrink: 0,
-            }}
-          >
-            <ShareLinkPill onToast={setToast} />
-            <DownloadMenu
-              onMapSvg={exportSvg}
-              onMapPng={exportPng}
-              onDashboardPng={exportDashboard}
-              disabled={dataLoading}
-            />
-          </div>
-        </div>
+          onEdit={(w) => {
+            setEditingWorkflow(w);
+            setBuilderOpen(true);
+          }}
+          onDelete={deleteWorkflow}
+        />
 
         <div
           style={{
@@ -918,6 +891,23 @@ export function App(): JSX.Element {
           )}
         </div>
       </section>
+
+      <div
+        style={{
+          display: "flex",
+          gap: 6,
+          alignItems: "center",
+          flexWrap: "wrap",
+        }}
+      >
+        <ShareLinkPill onToast={setToast} />
+        <DownloadMenu
+          onMapSvg={exportSvg}
+          onMapPng={exportPng}
+          onDashboardPng={exportDashboard}
+          disabled={dataLoading}
+        />
+      </div>
 
       <main className="dashboard" id="map-area">
         <div

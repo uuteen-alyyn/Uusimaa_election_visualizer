@@ -207,23 +207,31 @@ function singleHueRamp(v: number, range: { min: number; max: number }): string {
 
 /** Cream→ochre ramp.
  *
- *  When a `range` is supplied, buckets are evenly distributed
- *  across the visible-regions vote range — important at kunta
- *  level where one big city can dominate (Oulu vs the rest of
- *  Oulun vaalipiiri, or Helsinki vs the rest of Uusimaa).
+ *  When a `range` is supplied, buckets are distributed in
+ *  **log10 space** — population (and votes) is famously
+ *  log-distributed (Zipf's law). Linear bucketing on raw votes
+ *  collapses too aggressively when one outlier dominates the
+ *  range (e.g. Oulu's 116K vs the next-biggest kunta at 18K
+ *  in Oulun vp). Log spreads readers' attention sensibly:
+ *  ~equal visual distance between Helsinki↔Uusimaa,
+ *  Uusimaa↔Pirkanmaa, etc.
  *
  *  When `range` is null, falls back to fixed thresholds tuned
- *  for the parliamentary vp level (where the smallest vp,
- *  Ahvenanmaa, has ~12 000 votes and the largest, Uusimaa,
- *  has 565 000). */
+ *  for the parliamentary vp level (Ahvenanmaa ~12 000 →
+ *  Uusimaa ~565 000). */
 function votesFill(
   result: RegionResult,
   range: { min: number; max: number } | null,
 ): string {
   const v = result.votes;
   if (range) {
-    const span = range.max - range.min || 1;
-    const t = (v - range.min) / span;
+    // Avoid log(0). Use max(1, …) — votes are always ≥ 0 in
+    // practice; this guards against future no-data zeros.
+    const logV = Math.log10(Math.max(1, v));
+    const logMin = Math.log10(Math.max(1, range.min));
+    const logMax = Math.log10(Math.max(1, range.max));
+    const span = logMax - logMin || 1;
+    const t = (logV - logMin) / span;
     if (t < 0.15) return "var(--ramp-votes-1)";
     if (t < 0.4) return "var(--ramp-votes-2)";
     if (t < 0.65) return "var(--ramp-votes-3)";
