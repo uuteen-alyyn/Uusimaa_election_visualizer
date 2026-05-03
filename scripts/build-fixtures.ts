@@ -59,6 +59,41 @@ function canonicalizeAreaId(rawId: string): string {
   return rawId;
 }
 
+/* ─── Aggregate-row filter ──────────────────────────────────── */
+
+/** PxWeb tables include "all parties" aggregate rows alongside the
+ *  per-party rows. The schemas declare these via `party_total_code`
+ *  ("SSS" for parliamentary/municipal/regional, "00" for EU). We
+ *  drop them so they don't end up as a 100%-share fake "party"
+ *  in the fixture (which would dominate `pickWinner` and break
+ *  every coloring mode that reads `shares`). */
+const AGGREGATE_PARTY_IDS = new Set([
+  "SSS",
+  "00",
+  "TOTAL",
+  "00000",
+]);
+
+const AGGREGATE_NAME_PATTERNS: RegExp[] = [
+  /^puolueet\s+yhteens/i,
+  /^yhteens(?:ä|a)$/i,
+  /^kaikki\s+puolueet/i,
+  /^all\s+parties$/i,
+];
+
+function isAggregateParty(
+  partyId: string | undefined,
+  partyName: string | undefined,
+): boolean {
+  if (partyId && AGGREGATE_PARTY_IDS.has(partyId)) return true;
+  if (partyName) {
+    for (const re of AGGREGATE_NAME_PATTERNS) {
+      if (re.test(partyName)) return true;
+    }
+  }
+  return false;
+}
+
 /* ─── Party-name → slug translation ─────────────────────────── */
 
 /** PxWeb returns party_id as a table-internal code (e.g. "01", "02")
@@ -120,9 +155,14 @@ function aggregateRows(
   for (const records of groups.values()) {
     const first = records[0]!;
     // Sum across all party rows for the area's total vote count.
-    const totalVotes = records.reduce((s, r) => s + (r.votes || 0), 0);
+    // Skip aggregate rows ("Puolueet yhteensä") — counting them
+    // would double the totalVotes.
+    const partyOnly = records.filter(
+      (r) => !isAggregateParty(r.party_id, r.party_name),
+    );
+    const totalVotes = partyOnly.reduce((s, r) => s + (r.votes || 0), 0);
     const shares: Record<string, number> = {};
-    for (const r of records) {
+    for (const r of partyOnly) {
       const key = partyKey(r.party_name, r.party_id);
       if (!key) continue;
       // Some PxWeb tables emit duplicate party rows (e.g. by gender);

@@ -22,19 +22,30 @@ interface ElectionPickerProps {
   /** Hide elections from this set (e.g. the current election when
    *  picking a reference election so they're not equal). */
   exclude?: ReadonlySet<ElectionId>;
-  /** Optional set of election ids that have data. Others are
-   *  rendered disabled with a "(ei tietoja)" suffix. */
-  hasData?: ReadonlySet<ElectionId>;
+  /** Set of election ids that have data:
+   *
+   *  - `null` (still probing) → render every catalog election
+   *  - `Set` → render only the ones in the set
+   *
+   *  Hiding (rather than disabling) keeps the picker focused on
+   *  what the user can actually use. */
+  hasData?: ReadonlySet<ElectionId> | null;
   ariaLabel?: string;
 }
 
 function groupElectionsByType(
-  exclude: ReadonlySet<ElectionId> = new Set(),
+  exclude: ReadonlySet<ElectionId>,
+  hasData: ReadonlySet<ElectionId> | null | undefined,
 ): Array<{ type: string; label: string; entries: ElectionDef[] }> {
   return ELECTION_TYPES.map((t) => ({
     type: t.id,
     label: t.label,
-    entries: ELECTIONS.filter((e) => e.typeId === t.id && !exclude.has(e.id)),
+    entries: ELECTIONS.filter(
+      (e) =>
+        e.typeId === t.id &&
+        !exclude.has(e.id) &&
+        (hasData == null || hasData.has(e.id)),
+    ),
   })).filter((g) => g.entries.length > 0);
 }
 
@@ -45,7 +56,7 @@ export function ElectionPicker({
   hasData,
   ariaLabel,
 }: ElectionPickerProps): JSX.Element {
-  const groups = groupElectionsByType(exclude);
+  const groups = groupElectionsByType(exclude ?? new Set(), hasData);
 
   return (
     <select
@@ -65,19 +76,11 @@ export function ElectionPicker({
     >
       {groups.map((g) => (
         <optgroup key={g.type} label={g.label}>
-          {g.entries.map((e) => {
-            const missingData = hasData ? !hasData.has(e.id) : false;
-            return (
-              <option
-                key={e.id}
-                value={e.id}
-                disabled={missingData}
-              >
-                {e.shortLabel}
-                {missingData ? " (ei tietoja)" : ""}
-              </option>
-            );
-          })}
+          {g.entries.map((e) => (
+            <option key={e.id} value={e.id}>
+              {e.shortLabel}
+            </option>
+          ))}
         </optgroup>
       ))}
     </select>

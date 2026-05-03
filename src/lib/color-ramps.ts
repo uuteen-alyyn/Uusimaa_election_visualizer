@@ -51,6 +51,11 @@ export interface FillOptions {
    *  for adaptive `change` mode coloring. When omitted, fixed
    *  ±4pp thresholds are used. */
   changeRange?: { min: number; max: number } | null;
+  /** Min/max of total votes across visible regions for adaptive
+   *  `votes` mode coloring. Without this, drilled-in views where
+   *  one kunta dwarfs the rest (e.g. Oulu in Oulun vaalipiiri)
+   *  collapse all small kuntat into the lightest fixed bucket. */
+  votesRange?: { min: number; max: number } | null;
 }
 
 /** Determine the SVG fill for one region.
@@ -79,7 +84,7 @@ export function fillForRegion(
         options.supportRange ?? null,
       );
     case "votes":
-      return votesFill(result!);
+      return votesFill(result!, options.votesRange ?? null);
     case "change": {
       // Change mode needs *both* current and ref data; otherwise
       // crosshatch tells the user the comparison is unavailable
@@ -200,8 +205,32 @@ function singleHueRamp(v: number, range: { min: number; max: number }): string {
 
 /* ─── Mode: total votes (cream→ochre) ───────────────────────── */
 
-function votesFill(result: RegionResult): string {
+/** Cream→ochre ramp.
+ *
+ *  When a `range` is supplied, buckets are evenly distributed
+ *  across the visible-regions vote range — important at kunta
+ *  level where one big city can dominate (Oulu vs the rest of
+ *  Oulun vaalipiiri, or Helsinki vs the rest of Uusimaa).
+ *
+ *  When `range` is null, falls back to fixed thresholds tuned
+ *  for the parliamentary vp level (where the smallest vp,
+ *  Ahvenanmaa, has ~12 000 votes and the largest, Uusimaa,
+ *  has 565 000). */
+function votesFill(
+  result: RegionResult,
+  range: { min: number; max: number } | null,
+): string {
   const v = result.votes;
+  if (range) {
+    const span = range.max - range.min || 1;
+    const t = (v - range.min) / span;
+    if (t < 0.15) return "var(--ramp-votes-1)";
+    if (t < 0.4) return "var(--ramp-votes-2)";
+    if (t < 0.65) return "var(--ramp-votes-3)";
+    if (t < 0.85) return "var(--ramp-votes-4)";
+    return "var(--ramp-votes-5)";
+  }
+  // Fixed-threshold fallback.
   if (v < 20_000) return "var(--ramp-votes-1)";
   if (v < 50_000) return "var(--ramp-votes-2)";
   if (v < 100_000) return "var(--ramp-votes-3)";

@@ -1878,3 +1878,129 @@ Implementations:
   region for ~1s → tooltip shows region + the mode's value.
   Top-right has a clearly-visible "Jaa linkki" + "↓ Lataa
   kuvana" pair.
+
+---
+
+## ENTRY fix: 4 user-reported bugs (EU + votes + election persistence + picker) 2026-05-03
+
+**What was done**
+
+User-reported issues, all fixed in one commit:
+
+1. **EU view broken** — diagnosed via fixture inspection: every
+   eu2024 region had a `_puolueetyhte` "party" at 100% share
+   (the "Puolueet yhteensä" aggregate row from PxWeb that the
+   prefetch's party-name matcher didn't catch). pickWinner
+   returned it for every region, the fill referenced the
+   non-existent `var(--p-_puolueetyhte)`, and regions rendered
+   with the CSS fallback color.
+
+   Fix: `scripts/build-fixtures.ts` adds `isAggregateParty()` —
+   skips rows whose `party_id` is one of `{"SSS", "00", "TOTAL", "00000"}`
+   or whose `party_name` matches `/^puolueet\s+yhteens/i`,
+   `/^yhteens(ä|a)$/i`, `/^kaikki\s+puolueet/i`, `/^all\s+parties$/i`.
+   Re-ran prefetch → eu2024 fixture is now clean (Uusimaa shares
+   sum to 100% across real parties).
+
+2. **Votes view broken in Oulun vaalipiiri** — diagnosed: Oulu
+   kunta has 116 840 votes; the next-largest (Kajaani) has
+   18 853; the smallest (Merijärvi) has 565. With fixed
+   thresholds (20K / 50K / 100K / 200K), 37 of 38 kuntat fell
+   in bucket 1 (cream).
+
+   Fix: same adaptive-range pattern as support / change.
+   `color-ramps.ts` accepts a `votesRange: {min, max}`; when
+   provided, the 5 buckets distribute evenly within
+   `[min, max]`. App computes the range over `visibleRegionIds`
+   when `mode === "votes"` and threads it through `getFill`.
+   Big-vp views unchanged (range-based vs fixed produces ~the
+   same buckets when range spans 12K → 565K); drilled-in
+   kunta views now read as real geographic gradient.
+
+3. **Election doesn't stick across mode toggle** — `applyWorkflow`
+   unconditionally called `setElection(w.election)`, which is
+   `ek2023` for every built-in. Switching modes reset the user's
+   ek2019 / kunta2025 / etc. choice.
+
+   Fix: `setElection((prev) => electionsWithData.has(prev) ? prev : w.election)`.
+   The user's current election persists when it has data; the
+   workflow's default only kicks in if the current is no_data
+   (e.g. user landed on ek2027 via URL hash, then clicked a pill).
+   Same logic for `refElection`. While probing (`electionsWithData`
+   is `null`), preserve current — assume the user knows what
+   they're doing.
+
+4. **Presidential / EU2019 / Kunta2021 / EK2027 in picker** —
+   they were rendered disabled with "(ei tietoja)" suffix.
+   Per user feedback, that's confusing UX.
+
+   Fix: `ElectionPicker` now FILTERS rather than disables. If
+   `hasData` is provided, only matching elections render. If
+   `hasData` is `null` (still probing), all options show. As
+   a side effect, `useElectionsWithData` now starts at `null`
+   instead of an empty Set, so during the brief probing window
+   the picker shows everything. Same filter applied to the
+   selector-binding row's year picker.
+
+**Decisions**
+
+- **Aggregate party filter is layered**: party_id codes catch
+  the common cases ("SSS" parliamentary/municipal/regional,
+  "00" EU); name patterns catch the long tail. Cheap, robust.
+- **Adaptive ramps now cover all of support / change / votes
+  / formula.** Winner mode doesn't need adaptive (each region
+  gets its winner's color, no scale). The pattern is consistent
+  across modes — App computes a range across `visibleRegionIds`,
+  passes through `FillOptions`.
+- **Election persistence trusts the probe.** When
+  `electionsWithData` is still `null`, we don't know if the
+  current election is bad; default to keeping the user's choice.
+  Worst case: user lands on a no_data election and the dashboard
+  shows crosshatch until they pick another (or reload after
+  the probe finishes). Same as before — no regression.
+- **Hide vs disable**: hiding no-data options matches the user's
+  expectation that "if it's in the picker, I can use it". The
+  hidden-but-loadable-via-URL-hash case gracefully falls back
+  to the workflow's default election.
+
+**Files changed**
+
+- Modified: `scripts/build-fixtures.ts` (isAggregateParty filter),
+  `src/lib/color-ramps.ts` (votesRange + adaptive votesFill),
+  `src/components/ElectionPicker.tsx` (filter vs disable),
+  `src/App.tsx` (votesRange computation, applyWorkflow election
+  persistence, useElectionsWithData returns null when probing,
+  SelectorBindingRow accepts null hasData)
+- Re-ran `npm run prefetch` to regenerate fixtures with the
+  aggregate filter applied.
+- `Logbook.md` (this entry)
+
+**Build status**
+
+- `npm run typecheck` — clean
+- `npm run build` — clean, 2.04s, 73.87 KB gz JS (+0.07 KB)
+- `npm test` — 162 / 162 passed
+
+**Test count**
+
+- 162 / 162 (no test changes — existing tests still pass; the
+  bug surfaces on the data layer (prefetch) and runtime layer
+  (App-level range computation), neither of which has test
+  coverage focused on these specific bugs. Could add as future
+  hardening — flagging in BACKLOG)
+
+**Commit hash**
+
+- Pending this session
+
+**Notes**
+
+- Local fixture regeneration is needed for the EU fix to be
+  visible in the running dev server. `npm run prefetch` does
+  this; subsequent `vite dev` reloads the new JSON. Documented
+  in the commit message.
+- Manual smoke check pending: pick eu2024 → see proper party
+  coloring (not all-cream). Switch from winner to support to
+  votes — current election sticks. Pick Oulun vaalipiiri in
+  votes mode → kuntat range from cream (Merijärvi) to ochre
+  (Oulu). Picker no longer shows presidential elections.

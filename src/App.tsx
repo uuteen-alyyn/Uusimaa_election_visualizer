@@ -122,8 +122,11 @@ function useFixture(
   return { map, loading };
 }
 
-function useElectionsWithData(source: LocalFixtureSource): ReadonlySet<ElectionId> {
-  const [ids, setIds] = useState<ReadonlySet<ElectionId>>(new Set());
+/** Returns `null` while probing (so the picker doesn't briefly
+ *  flash all-disabled). Populated once every fixture has been
+ *  inspected. */
+function useElectionsWithData(source: LocalFixtureSource): ReadonlySet<ElectionId> | null {
+  const [ids, setIds] = useState<ReadonlySet<ElectionId> | null>(null);
   useEffect(() => {
     let cancelled = false;
     void (async () => {
@@ -367,27 +370,51 @@ export function App(): JSX.Element {
 
   /* ─── Apply / save / update / delete workflow ───────────── */
 
-  const applyWorkflow = useCallback((w: Workflow): void => {
-    setMode(w.kind);
-    setElection(w.election);
-    if (w.refElection) setRefElection(w.refElection);
-    if (WF_KIND_BY_ID[w.kind].needsParty) {
-      setFocusParty(w.party ?? DEFAULT_PARTY);
-    } else {
-      setFocusParty(null);
-    }
-    if (w.kind === "formula") {
-      const tokens = w.formula ?? [];
-      setFormulaTokens(tokens);
-      setFormulaBindings((prev) =>
-        autoDefaultBindings(tokens, w.defaultBindings ?? prev),
-      );
-      setAppliedSelectorLabels(w.selectorLabels ?? {});
-    } else {
-      setAppliedSelectorLabels({});
-    }
-    setAppliedWorkflowId(w.builtin ? null : w.id);
-  }, []);
+  const applyWorkflow = useCallback(
+    (w: Workflow): void => {
+      setMode(w.kind);
+
+      // Election persistence: when the user toggles between modes,
+      // they expect to stay on whatever election they were viewing.
+      // Only override the election when the current one has no data
+      // (probed via `electionsWithData`); when probing hasn't
+      // finished, keep the user's choice.
+      setElection((prev) => {
+        if (electionsWithData == null) return prev;
+        if (electionsWithData.has(prev)) return prev;
+        return w.election;
+      });
+
+      // Reference election follows the same persistence rule when
+      // the new workflow specifies one.
+      if (w.refElection) {
+        const target = w.refElection;
+        setRefElection((prev) => {
+          if (electionsWithData == null) return prev;
+          if (electionsWithData.has(prev)) return prev;
+          return target;
+        });
+      }
+
+      if (WF_KIND_BY_ID[w.kind].needsParty) {
+        setFocusParty(w.party ?? DEFAULT_PARTY);
+      } else {
+        setFocusParty(null);
+      }
+      if (w.kind === "formula") {
+        const tokens = w.formula ?? [];
+        setFormulaTokens(tokens);
+        setFormulaBindings((prev) =>
+          autoDefaultBindings(tokens, w.defaultBindings ?? prev),
+        );
+        setAppliedSelectorLabels(w.selectorLabels ?? {});
+      } else {
+        setAppliedSelectorLabels({});
+      }
+      setAppliedWorkflowId(w.builtin ? null : w.id);
+    },
+    [electionsWithData],
+  );
 
   const saveWorkflow = useCallback((wf: Workflow): void => {
     setCustomWorkflows((prev) => [...prev, wf]);
@@ -464,6 +491,23 @@ export function App(): JSX.Element {
     return { min, max };
   }, [mode, focusParty, currentResults, refResults, visibleRegionIds]);
 
+  /** Range of total votes across visible regions — keeps the votes
+   *  ramp readable at kunta level where one big city (Oulu, Tampere,
+   *  Helsinki) often dwarfs every other kunta in the same vp. */
+  const votesRange = useMemo(() => {
+    if (mode !== "votes" || !currentResults) return null;
+    let min = Infinity;
+    let max = -Infinity;
+    for (const id of visibleRegionIds) {
+      const v = currentResults.get(id)?.votes;
+      if (v == null) continue;
+      if (v < min) min = v;
+      if (v > max) max = v;
+    }
+    if (!Number.isFinite(min) || !Number.isFinite(max) || min === max) return null;
+    return { min, max };
+  }, [mode, currentResults, visibleRegionIds]);
+
   // Per-region formula values (memoised, so getFill is O(1) per call).
   const formulaValueByRegion = useMemo(() => {
     if (mode !== "formula" || resolvedFormula.length === 0) return new Map<string, number>();
@@ -499,6 +543,7 @@ export function App(): JSX.Element {
         formulaRange,
         supportRange,
         changeRange,
+        votesRange,
       });
     },
     [
@@ -510,6 +555,7 @@ export function App(): JSX.Element {
       formulaRange,
       supportRange,
       changeRange,
+      votesRange,
     ],
   );
 
@@ -1090,7 +1136,8 @@ function SelectorBindingRow({
   bindings: Record<string, Binding>;
   setBindings: React.Dispatch<React.SetStateAction<Record<string, Binding>>>;
   labels: Record<string, string>;
-  electionsWithData: ReadonlySet<ElectionId>;
+  /** `null` while probing — treat every option as available. */
+  electionsWithData: ReadonlySet<ElectionId> | null;
 }): JSX.Element {
   const bind = (name: string, patch: Partial<Binding>): void => {
     setBindings((prev) => ({ ...prev, [name]: { ...(prev[name] ?? {}), ...patch } }));
@@ -1171,14 +1218,11 @@ function SelectorBindingRow({
                 aria-label={`Vuosi $${s.name}`}
               >
                 <option value="">— valitse vuosi —</option>
-                {ELECTIONS.map((e) => (
-                  <option
-                    key={e.id}
-                    value={`${e.year}_${e.round ?? 1}`}
-                    disabled={!electionsWithData.has(e.id)}
-                  >
+                {ELECTIONS.filter(
+                  (e) => electionsWithData == null || electionsWithData.has(e.id),
+                ).map((e) => (
+                  <option key={e.id} value={`${e.year}_${e.round ?? 1}`}>
                     {e.shortLabel}
-                    {electionsWithData.has(e.id) ? "" : " (ei tietoja)"}
                   </option>
                 ))}
               </select>
