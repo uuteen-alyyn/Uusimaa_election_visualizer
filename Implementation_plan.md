@@ -260,8 +260,10 @@ against real data.
         (pp / votes), formula framing tabs in 3 (3/4) / (4/4)
   - [ ] Map area with pan/zoom, ↑/↓/Tab navigation, sub-region
         popover, focus-party picker, dynamic legend *(Phase 4)*
-  - [ ] Ledger: big-number TOTAL VOTES, formula value (when active),
-        party-share bars, top candidates list (scrollable) *(3/4)*
+  - [/] Ledger: big-number TOTAL VOTES + party-share bars + turnout
+        done in 3 (3/4); formula value lands in 3 (4/4) when the
+        composer ships; top candidates list deferred to Phase 4
+        (fixtures don't have candidates yet)
 - [/] Port `WorkflowBar` + `WorkflowBuilder` from
       [prototype/wf-workflows.jsx](prototype/wf-workflows.jsx)
       *(WorkflowBar — built-ins shipped; WorkflowBuilder in 3 (4/4))*

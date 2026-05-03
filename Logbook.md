@@ -1073,3 +1073,104 @@ warmer pinks anyway.
 - Next: Phase 3 (3/4) — Ledger panel showing TOTAL VOTES,
   party-share bars, formula value (when active), and stub for
   candidates list.
+
+---
+
+## ENTRY Phase 3 (3/4) — Ledger panel + dashboard 2-column layout 2026-05-03
+
+**What was done**
+
+- New: `src/components/Ledger.tsx` — right-side panel:
+  * Region label + type chip ("Vaalipiiri" / "Kunta" / "Koko maa")
+  * Big TOTAL VOTES number with Finnish thousand separators
+    (`Intl.NumberFormat("fi-FI")`)
+  * Turnout + voters line, with a tasteful "—" fallback when
+    turnout is 0 (current state — Phase 1 deferred a real
+    turnout fetch)
+  * Party-share bar list: 8 canonical parties always present
+    (so row count stays stable as the user navigates), sorted
+    by share desc, plus a "Muut" bucket aggregating non-canonical
+    parties (Liike Nyt, Liberaalipuolue, etc.) when their sum
+    ≥ 0.05%.
+  * Loading skeleton (dashed bars, ellipsis labels) while
+    fixtures are in flight.
+  * No-data fallback ("Ei tietoja") when the fixture is empty.
+- New: `src/lib/aggregate.ts` + tests (6 tests). Computes
+  weighted-mean party shares + summed votes/voters across rows.
+  Used by App when no region is selected at country level — sums
+  the 13 vp rows to render a "Koko Suomi" row in the ledger
+  (analogous to the prototype's synthetic `regionData("suomi")`,
+  but computed honestly from the underlying data).
+- `App.tsx` updated:
+  * `useMemo` resolves which RegionResult drives the ledger:
+    - selected region → that region's row
+    - else, kunta level → parent vp's row
+    - else, country view → aggregate of all 13 vps
+  * Switched `<main>` to a CSS grid: 1fr (map) + 380px (ledger),
+    with a `@media (max-width: 960px)` fallback that stacks them.
+- `src/styles/main.css`:
+  * `.dashboard` grid container
+  * `.dashboard-map`, `.dashboard-ledger` flex helpers
+  * Soft mobile fallback (single-column stack)
+
+**Decisions**
+
+- **Always show all 8 canonical parties.** Even at 0%, having a
+  fixed row count means the ledger doesn't visually "jump" when
+  the user switches between Helsinki (where every party is
+  present) and a small kunta (where some parties are absent).
+- **Other-bucket threshold of 0.05%** prevents a row that's just
+  rounding noise. The fixture preserves smaller parties under
+  `_<slug>` keys so this doesn't lose information silently.
+- **Turnout = 0 → render "—".** Misleading 0% would tell users
+  every region had no participation. Phase 1.x will fetch real
+  turnout per area; UI will then read it without changing.
+- **Country-aggregate computed client-side, not stored in
+  fixtures.** Pre-computing would drift if any individual vp's
+  data changed; recomputing per render is cheap and always
+  consistent.
+- **Ledger is purely visual.** No event handlers, no internal
+  state. All the resolution (which row to display) happens in
+  the App's `useMemo`. Easier to test in isolation later if
+  needed.
+
+**Files changed**
+
+- New: `src/components/Ledger.tsx`, `src/lib/aggregate.ts`,
+  `src/lib/aggregate.test.ts`
+- Modified: `src/App.tsx` (ledger wiring + 2-column layout),
+  `src/styles/main.css` (dashboard grid),
+  `Implementation_plan.md`, `Logbook.md`
+
+**Build status**
+
+- `npm run typecheck` — clean
+- `npm run build` — clean, 1.47s, **54.16 KB gz JS**
+  (was 52.73 → +1.4 KB gz for Ledger + aggregate),
+  1.62 KB gz CSS (was 1.54 → +80 B for the grid rules)
+- `npm test` — **126 / 126 passed** (was 120 → +6 aggregate)
+
+**Bundle size**
+
+- JS: 166.52 KB raw / 54.16 KB gzipped
+- CSS: 4.83 KB raw / 1.62 KB gzipped
+
+**Test count**
+
+- 126 / 126 (was 120)
+
+**Commit hash**
+
+- Pending this session
+
+**Notes**
+
+- Manual visual check pending: open dev server, confirm
+  * Country view shows "Koko Suomi" with the aggregate row
+  * Click a vp → ledger updates to that vp's data
+  * Drill into Uusimaa → ledger shows Uusimaa data (parent),
+    click a kunta → ledger shows kunta data
+  * Switch elections, party shares update + ordering follows
+- Next: Phase 3 (4/4) — Custom formula composer + WorkflowBuilder
+  modal + localStorage persistence. The "+ Custom" trigger
+  appears in the workflow bar and opens the chip-based composer.

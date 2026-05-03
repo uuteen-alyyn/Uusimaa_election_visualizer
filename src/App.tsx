@@ -16,6 +16,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { Crumb } from "./components/Crumb";
 import { ElectionPicker } from "./components/ElectionPicker";
 import { HierarchyMap, type DisplayLevel } from "./components/HierarchyMap";
+import { Ledger, type LedgerLevelLabel } from "./components/Ledger";
 import { PartyPicker } from "./components/PartyPicker";
 import { WorkflowBar } from "./components/WorkflowBar";
 
@@ -23,6 +24,7 @@ import { ELECTION_BY_ID, ELECTIONS } from "./data/catalog";
 import { LocalFixtureSource } from "./data/elections-source";
 import { loadGeometry, type ProjectedGeometry } from "./data/geometry";
 
+import { aggregateRegions } from "./lib/aggregate";
 import { fillForRegion } from "./lib/color-ramps";
 import {
   readShareStateFromHash,
@@ -233,6 +235,51 @@ export function App(): JSX.Element {
       ? geometry.vaalipiirit.find((v) => v.slug === parentSlug)
       : null;
 
+  /* ─── Ledger inputs ──────────────────────────────────────── */
+
+  // Resolve which RegionResult drives the ledger panel:
+  //   - selected region → that region's row
+  //   - else at vp level → country aggregate (sum of all 13 vps)
+  //   - else at kunta level → the parent vp's row from the fixture
+  const ledger = useMemo<{
+    result: RegionResult | null;
+    label: string;
+    levelLabel: LedgerLevelLabel;
+  }>(() => {
+    if (!currentResults) {
+      return { result: null, label: "Koko Suomi", levelLabel: "Koko maa" };
+    }
+    if (selected) {
+      const result = currentResults.get(selected) ?? null;
+      if (level === "vp" && geometry) {
+        const vp = geometry.vaalipiirit.find((v) => v.id === selected);
+        return { result, label: vp?.label ?? selected, levelLabel: "Vaalipiiri" };
+      }
+      if (level === "kunta" && geometry && parentSlug) {
+        const k = geometry.kunnat[parentSlug]?.find((x) => x.id === selected);
+        return { result, label: k?.label ?? selected, levelLabel: "Kunta" };
+      }
+      return { result, label: selected, levelLabel: "Vaalipiiri" };
+    }
+    if (level === "kunta" && parentVp) {
+      const result = currentResults.get(parentVp.id) ?? null;
+      return { result, label: parentVp.label, levelLabel: "Vaalipiiri" };
+    }
+    // No selection at country level — aggregate the 13 vps.
+    const vpRows = Array.from(currentResults.values()).filter((r) =>
+      /^\d{2}$/.test(r.regionId),
+    );
+    const aggregated = aggregateRegions(vpRows, {
+      regionId: "__suomi",
+      electionId: election,
+    });
+    return {
+      result: aggregated,
+      label: "Koko Suomi",
+      levelLabel: "Koko maa",
+    };
+  }, [currentResults, selected, level, parentSlug, parentVp, geometry, election]);
+
   /* ─── Render ─────────────────────────────────────────────── */
 
   if (loadError) {
@@ -332,22 +379,32 @@ export function App(): JSX.Element {
         </div>
       </section>
 
-      <main style={{ display: "flex", justifyContent: "center", minHeight: 600 }}>
-        {dataLoading ? (
-          <p style={{ opacity: 0.6 }}>Loading {electionLabel}…</p>
-        ) : (
-          <HierarchyMap
-            geometry={geometry}
-            level={level}
-            parentSlug={parentSlug}
-            selected={selected}
-            getFill={getFill}
-            onPick={onPick}
-            onZoomIn={onZoomIn}
-            width={520}
-            height={640}
+      <main className="dashboard">
+        <div className="dashboard-map">
+          {dataLoading || !geometry ? (
+            <p style={{ opacity: 0.6 }}>Loading {electionLabel}…</p>
+          ) : (
+            <HierarchyMap
+              geometry={geometry}
+              level={level}
+              parentSlug={parentSlug}
+              selected={selected}
+              getFill={getFill}
+              onPick={onPick}
+              onZoomIn={onZoomIn}
+              width={520}
+              height={640}
+            />
+          )}
+        </div>
+        <div className="dashboard-ledger">
+          <Ledger
+            result={ledger.result}
+            label={ledger.label}
+            levelLabel={ledger.levelLabel}
+            loading={dataLoading}
           />
-        )}
+        </div>
       </main>
 
       <footer>

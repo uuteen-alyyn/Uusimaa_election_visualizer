@@ -42,3 +42,31 @@ body {
   font-size: 11px;
   opacity: 0.6;
 }
+
+/* Dashboard layout — map left, ledger right. Switches to a stacked
+   column on narrow viewports so nothing gets squashed (mobile is
+   formally out of scope, but a soft fallback is still polite). */
+.dashboard {
+  display: grid;
+  grid-template-columns: 1fr 380px;
+  gap: 24px;
+  align-items: start;
+  min-height: 640px;
+}
+
+.dashboard-map {
+  display: flex;
+  justify-content: center;
+  align-items: flex-start;
+  min-width: 0;
+}
+
+.dashboard-ledger {
+  min-width: 0;
+}
+
+@media (max-width: 960px) {
+  .dashboard {
+    grid-template-columns: 1fr;
+  }
+}
