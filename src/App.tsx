@@ -748,10 +748,18 @@ export function App(): JSX.Element {
         currentResults.get(id)?.shares[focusParty] ??
         hvaById.get(id)?.shares[focusParty] ??
         aaById.get(id)?.shares[focusParty];
-      const b =
+      let b =
         refResults.get(id)?.shares[focusParty] ??
         refHvaById.get(id)?.shares[focusParty] ??
         refAaById.get(id)?.shares[focusParty];
+      // AA + ref election with no AA fixture: borrow the parent
+      // kunta's ref share so the diverging ramp still scales to a
+      // meaningful range across visible AAs.
+      if (b == null) {
+        const aaRow = aaById.get(id);
+        const parent = aaRow?.parentKunta;
+        if (parent) b = refResults.get(parent)?.shares[focusParty];
+      }
       if (a == null || b == null) continue;
       const d = a - b;
       if (d < min) min = d;
@@ -847,11 +855,24 @@ export function App(): JSX.Element {
         hvaById.get(regionId) ??
         aaById.get(regionId) ??
         null;
-      const refResult =
+      // Ref-election lookup. AA fixtures only exist for the most
+      // recent of each non-parliamentary election (kunta2025,
+      // alue2025, eu2024, pres2024); older comparisons (kunta2021,
+      // alue2022, eu2019) have 0 AA rows. When that happens, fall
+      // back to the AA's parent kunta in the ref election so each
+      // AA inherits the kunta-level change instead of every square
+      // rendering neutral. The ledger labels this when an AA is
+      // selected so the user knows the value is kunta-aggregated.
+      let refResult =
         refResults?.get(regionId) ??
         refHvaById.get(regionId) ??
         refAaById.get(regionId) ??
         null;
+      if (!refResult && level === "aa") {
+        const aaRow = aaById.get(regionId);
+        const parent = aaRow?.parentKunta;
+        if (parent) refResult = refResults?.get(parent) ?? null;
+      }
       const formulaValue = formulaValueByRegion.get(regionId) ?? null;
       return fillForRegion(result, mode, {
         focusParty,
@@ -1164,8 +1185,28 @@ export function App(): JSX.Element {
       }
       if (level === "aa") {
         const aa = aaResults.find((r) => r.regionId === selected);
+        // AA fixtures don't carry per-AA candidate lists (the
+        // build-fixtures script only attaches candidates at vp /
+        // kunta / hva). Borrow the parent kunta's candidates so
+        // the ledger's "eniten ääniä" scroll still has content
+        // when the user is at AA level. The ledger header rules
+        // already show AA-specific votes / shares above, so the
+        // candidate list reads as the kunta's ranking — flagged
+        // by passing it via `result.candidates` only when the AA
+        // itself has none.
+        const enriched =
+          result && (!result.candidates || result.candidates.length === 0)
+            ? (() => {
+                const parentId = result.parentKunta;
+                const kunta = parentId ? currentResults.get(parentId) : null;
+                if (kunta?.candidates && kunta.candidates.length > 0) {
+                  return { ...result, candidates: kunta.candidates };
+                }
+                return result;
+              })()
+            : result;
         return {
-          result,
+          result: enriched,
           label: aa?.label ?? selected,
           levelLabel: "Äänestysalue",
           ...formulaInfo,
