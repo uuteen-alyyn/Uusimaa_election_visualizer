@@ -1225,203 +1225,49 @@ export function App(): JSX.Element {
       <a href="#map-area" className="skip-link">
         Siirry karttaan
       </a>
-      <header
-        style={{
-          display: "flex",
-          alignItems: "flex-start",
-          justifyContent: "space-between",
-          gap: 16,
-          flexWrap: "wrap",
-        }}
-      >
-        <div style={{ minWidth: 0, flex: "1 1 auto" }}>
+      <div className="page-grid" id="map-area">
+        {/* ─── Left column: title + Vaali + Mittari + Ledger ─── */}
+        <section className="col col-left" aria-label="Otsikko ja päätunnusluvut">
           <h1>Vaalit — tulosvisualisointi</h1>
           <Crumb steps={crumbSteps} />
-        </div>
-        <div
-          style={{
-            display: "flex",
-            gap: 6,
-            alignItems: "center",
-            flexWrap: "wrap",
-            flex: "0 0 auto",
-          }}
-        >
-          <ShareLinkPill onToast={setToast} />
-          <DownloadMenu
-            onMapSvg={exportSvg}
-            onMapPng={exportPng}
-            onDashboardPng={exportDashboard}
-            disabled={dataLoading}
-          />
-          <HelpBox />
-        </div>
-      </header>
 
-      <section
-        aria-label="Tarkastelutyyli ja parametrit"
-        style={{ display: "flex", flexDirection: "column", gap: 8 }}
-      >
-        {/* Single controls row — Vaali, Mittari, per-mode controls,
-            optional Skaala, plus the Lisäasetukset escape hatch. */}
-        <div
-          style={{
-            display: "flex",
-            alignItems: "center",
-            gap: 10,
-            flexWrap: "wrap",
-            minHeight: 32,
-            fontSize: 13,
-          }}
-        >
-          <ParamLabel>Vaali</ParamLabel>
-          <ElectionPicker
-            value={election}
-            onChange={setElection}
-            hasData={electionsWithData}
-            ariaLabel="Vaali"
-          />
-
-          <span
-            style={{ width: 1, height: 22, background: "var(--hair)", margin: "0 4px" }}
-          />
-
-          <ParamLabel>Mittari</ParamLabel>
-          <MittariDropdown
-            builtins={BUILTIN_WORKFLOWS}
-            customs={customWorkflows}
-            activeWorkflow={activeWorkflow}
-            onApply={applyWorkflow}
-            onOpenBuilder={() => {
-              setEditingWorkflow(null);
-              setBuilderOpen(true);
-            }}
-            onEdit={(w) => {
-              setEditingWorkflow(w);
-              setBuilderOpen(true);
-            }}
-            onDelete={deleteWorkflow}
-          />
-
-          {/* Per-mode inline controls. Only the most-frequently-
-              changed knobs surface here; lower-frequency settings
-              (HVA toggle, Ahvenanmaa exclusion) live in
-              Lisäasetukset. */}
-          {WF_KIND_BY_ID[mode].needsParty ? (
-            <>
-              <span
-                style={{ width: 1, height: 22, background: "var(--hair)", margin: "0 4px" }}
-              />
-              <ParamLabel>Puolue</ParamLabel>
-              <PartyPicker
-                value={focusParty}
-                onChange={setFocusParty}
-                allowAll={mode === "votes"}
-              />
-            </>
-          ) : null}
-
-          {mode === "change" ? (
-            <>
-              <span
-                style={{ width: 1, height: 22, background: "var(--hair)", margin: "0 4px" }}
-              />
-              <ParamLabel>Vertailu</ParamLabel>
-              <ElectionPicker
-                value={refElection}
-                onChange={setRefElection}
-                exclude={new Set([election])}
-                hasData={electionsWithData}
-                ariaLabel="Vertailuvuosi"
-              />
-            </>
-          ) : null}
-
-          {mode === "formula" ? (
-            <>
-              <span
-                style={{ width: 1, height: 22, background: "var(--hair)", margin: "0 4px" }}
-              />
-              <ParamLabel>Skaala</ParamLabel>
-              <FramingTabs value={framing} onChange={setFraming} />
-            </>
-          ) : null}
-
-          <span style={{ marginLeft: "auto" }} />
-          <LisaasetuksetButton
-            viewMode={viewMode}
-            onViewModeChange={(next) => {
-              setViewMode(next);
-              if (next === "kunta" && level === "hva" && parentSlug) {
-                setLevel("kunta");
-                setSelected(null);
-              }
-              if (
-                next === "hva" &&
-                level === "kunta" &&
-                parentSlug &&
-                hvaMap
-              ) {
-                const hvaCount = Object.values(hvaMap.hvaToVp).filter(
-                  (s) => s === parentSlug,
-                ).length;
-                if (hvaCount >= 2) {
-                  setLevel("hva");
-                  setSelected(null);
-                }
-              }
-            }}
-            hvaDisabledReason={(() => {
-              if (!parentSlug) return null;
-              if (parentSlug === "hel" || parentSlug === "ahve") {
-                return "Helsinki ja Ahvenanmaa: ei hyvinvointialueita";
-              }
-              return null;
-            })()}
-            showAhvenanmaaToggle={mode === "formula"}
-            excludeAhvenanmaa={excludeAhvenanmaa}
-            onExcludeAhvenanmaaChange={(next) => {
-              setExcludeAhvenanmaa(next);
-              if (appliedWorkflowId) {
-                setCustomWorkflows((prev) =>
-                  prev.map((w) =>
-                    w.id === appliedWorkflowId
-                      ? { ...w, excludeAhvenanmaa: next }
-                      : w,
-                  ),
-                );
-              }
-            }}
-          />
-        </div>
-
-        {/* Second row: selector bindings, only when a custom formula
-            has selectors. Stays out of the way otherwise. */}
-        {mode === "formula" && activeSelectors.length > 0 ? (
           <div
             style={{
               display: "flex",
-              alignItems: "center",
-              gap: 10,
-              flexWrap: "wrap",
+              flexDirection: "column",
+              gap: 6,
               fontSize: 13,
             }}
           >
-            <SelectorBindingRow
-              selectors={activeSelectors}
-              bindings={formulaBindings}
-              setBindings={setFormulaBindings}
-              labels={appliedSelectorLabels}
-              electionsWithData={electionsWithData}
-              loadCandidates={(id) => source.listCandidates(id)}
-            />
+            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+              <ParamLabel>Vaali</ParamLabel>
+              <ElectionPicker
+                value={election}
+                onChange={setElection}
+                hasData={electionsWithData}
+                ariaLabel="Vaali"
+              />
+            </div>
+            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+              <ParamLabel>Mittari</ParamLabel>
+              <MittariDropdown
+                builtins={BUILTIN_WORKFLOWS}
+                customs={customWorkflows}
+                activeWorkflow={activeWorkflow}
+                onApply={applyWorkflow}
+                onOpenBuilder={() => {
+                  setEditingWorkflow(null);
+                  setBuilderOpen(true);
+                }}
+                onEdit={(w) => {
+                  setEditingWorkflow(w);
+                  setBuilderOpen(true);
+                }}
+                onDelete={deleteWorkflow}
+              />
+            </div>
           </div>
-        ) : null}
-      </section>
 
-
-      <main className="dashboard" id="map-area">
-        <div className="dashboard-ledger">
           <Ledger
             result={ledger.result}
             label={ledger.label}
@@ -1437,12 +1283,13 @@ export function App(): JSX.Element {
                 : null
             }
           />
-        </div>
-        <div
-          className="dashboard-map"
+        </section>
+
+        {/* ─── Center column: full-height map ─── */}
+        <section
+          className="col col-center"
           ref={mapAreaRef}
           aria-label={`Vaalituloskartta — ${electionLabel}`}
-          style={{ position: "relative" }}
         >
           {dataLoading || !geometry ? (
             <LoadingStamp electionLabel={electionLabel} />
@@ -1466,44 +1313,153 @@ export function App(): JSX.Element {
                 onPick={onPick}
                 onZoomIn={onZoomIn}
               />
-              {/* Legend overlay: top-left of the actual map. With the
-                  ledger now on the left side of the page, top-left
-                  of the map sits visually adjacent to the ledger and
-                  covers only the empty space above Lapland's western
-                  coast — much less critical than the southern
-                  regions it used to overlap. */}
-              <div
-                style={{
-                  position: "absolute",
-                  top: 10,
-                  left: 10,
-                  pointerEvents: "auto",
-                  zIndex: 4,
-                }}
-              >
-                <DynamicLegend
-                  mode={mode}
-                  focusParty={focusParty}
-                  winnerParties={winnerPartiesInView}
-                  hasNoData={hasNoDataInView}
-                  supportRange={supportRange}
-                  changeRange={changeRange}
-                  votesRange={votesRange}
-                  formulaRange={formulaRange}
-                  formulaSummary={
-                    mode === "formula" && resolvedFormula.length > 0
-                      ? formulaSummary(resolvedFormula)
-                      : null
-                  }
-                  framing={mode === "formula" ? framing : null}
-                  electionLabel={electionLabel}
-                  refElectionLabel={mode === "change" ? refLabel : undefined}
-                />
-              </div>
             </div>
           )}
-        </div>
-      </main>
+        </section>
+
+        {/* ─── Right column: actions + per-mode controls + legend ─── */}
+        <section className="col col-right" aria-label="Toiminnot ja selitykset">
+          <div className="col-right-actions">
+            <ShareLinkPill onToast={setToast} />
+            <DownloadMenu
+              onMapSvg={exportSvg}
+              onMapPng={exportPng}
+              onDashboardPng={exportDashboard}
+              disabled={dataLoading}
+            />
+            <HelpBox />
+          </div>
+
+          {/* Per-mode controls — visible only when applicable. */}
+          {(WF_KIND_BY_ID[mode].needsParty ||
+            mode === "change" ||
+            mode === "formula") ? (
+            <div className="col-right-controls">
+              {WF_KIND_BY_ID[mode].needsParty ? (
+                <>
+                  <ParamLabel>Puolue</ParamLabel>
+                  <PartyPicker
+                    value={focusParty}
+                    onChange={setFocusParty}
+                    allowAll={mode === "votes"}
+                  />
+                </>
+              ) : null}
+              {mode === "change" ? (
+                <>
+                  <ParamLabel>Vertailu</ParamLabel>
+                  <ElectionPicker
+                    value={refElection}
+                    onChange={setRefElection}
+                    exclude={new Set([election])}
+                    hasData={electionsWithData}
+                    ariaLabel="Vertailuvuosi"
+                  />
+                </>
+              ) : null}
+              {mode === "formula" ? (
+                <>
+                  <ParamLabel>Skaala</ParamLabel>
+                  <FramingTabs value={framing} onChange={setFraming} />
+                </>
+              ) : null}
+            </div>
+          ) : null}
+
+          <div style={{ display: "flex", justifyContent: "flex-end" }}>
+            <LisaasetuksetButton
+              viewMode={viewMode}
+              onViewModeChange={(next) => {
+                setViewMode(next);
+                if (next === "kunta" && level === "hva" && parentSlug) {
+                  setLevel("kunta");
+                  setSelected(null);
+                }
+                if (
+                  next === "hva" &&
+                  level === "kunta" &&
+                  parentSlug &&
+                  hvaMap
+                ) {
+                  const hvaCount = Object.values(hvaMap.hvaToVp).filter(
+                    (s) => s === parentSlug,
+                  ).length;
+                  if (hvaCount >= 2) {
+                    setLevel("hva");
+                    setSelected(null);
+                  }
+                }
+              }}
+              hvaDisabledReason={(() => {
+                if (!parentSlug) return null;
+                if (parentSlug === "hel" || parentSlug === "ahve") {
+                  return "Helsinki ja Ahvenanmaa: ei hyvinvointialueita";
+                }
+                return null;
+              })()}
+              showAhvenanmaaToggle={mode === "formula"}
+              excludeAhvenanmaa={excludeAhvenanmaa}
+              onExcludeAhvenanmaaChange={(next) => {
+                setExcludeAhvenanmaa(next);
+                if (appliedWorkflowId) {
+                  setCustomWorkflows((prev) =>
+                    prev.map((w) =>
+                      w.id === appliedWorkflowId
+                        ? { ...w, excludeAhvenanmaa: next }
+                        : w,
+                    ),
+                  );
+                }
+              }}
+            />
+          </div>
+
+          {/* Legend (color-scheme explanation) — sits in the right
+              column so it's visible alongside the map. */}
+          <div>
+            <DynamicLegend
+              mode={mode}
+              focusParty={focusParty}
+              winnerParties={winnerPartiesInView}
+              hasNoData={hasNoDataInView}
+              supportRange={supportRange}
+              changeRange={changeRange}
+              votesRange={votesRange}
+              formulaRange={formulaRange}
+              formulaSummary={
+                mode === "formula" && resolvedFormula.length > 0
+                  ? formulaSummary(resolvedFormula)
+                  : null
+              }
+              framing={mode === "formula" ? framing : null}
+              electionLabel={electionLabel}
+              refElectionLabel={mode === "change" ? refLabel : undefined}
+            />
+          </div>
+
+          {/* Selector bindings — second row only when a formula has
+              `$A`, `$Y`, etc. */}
+          {mode === "formula" && activeSelectors.length > 0 ? (
+            <div
+              style={{
+                display: "flex",
+                flexWrap: "wrap",
+                gap: 8,
+                fontSize: 13,
+              }}
+            >
+              <SelectorBindingRow
+                selectors={activeSelectors}
+                bindings={formulaBindings}
+                setBindings={setFormulaBindings}
+                labels={appliedSelectorLabels}
+                electionsWithData={electionsWithData}
+                loadCandidates={(id) => source.listCandidates(id)}
+              />
+            </div>
+          ) : null}
+        </section>
+      </div>
 
       {builderOpen ? (
         <WorkflowBuilder
@@ -2172,14 +2128,25 @@ function BindingRow({
 
 /* ─── Käyttöohjeet (help / instructions) ────────────────────── */
 
-/** Collapsible help box rendered under the Jaa linkki + Lataa
- *  kuvana row. Covers map navigation, custom-formula building,
- *  export buttons, and the HVA toggle so a first-time visitor can
- *  orient themselves without leaving the page. */
+/** Help-button pill in the right-column actions. When clicked,
+ *  the panel opens as a fixed-position overlay centered on screen
+ *  with the three sections side-by-side, so the entire help text
+ *  fits within the viewport — the page itself is `overflow:
+ *  hidden` (viewport-pinned), so an inline expanded panel would
+ *  get clipped and require scrolling. */
 function HelpBox(): JSX.Element {
   const [open, setOpen] = useState(false);
+  // Close on Esc.
+  useEffect(() => {
+    if (!open) return;
+    const onKey = (e: KeyboardEvent): void => {
+      if (e.key === "Escape") setOpen(false);
+    };
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [open]);
   return (
-    <div style={{ marginTop: 8, maxWidth: 380 }}>
+    <>
       <span
         className="pill"
         role="button"
@@ -2200,89 +2167,148 @@ function HelpBox(): JSX.Element {
           gap: 6,
         }}
       >
-        <span style={{ fontFamily: "var(--font-mono)", fontSize: 10 }}>
-          {open ? "▾" : "▸"}
-        </span>
         Käyttöohjeet
       </span>
       {open ? (
         <div
-          className="box soft"
+          onClick={() => setOpen(false)}
           style={{
-            marginTop: 8,
-            padding: "10px 14px",
-            fontSize: 13,
-            lineHeight: 1.55,
-            background: "var(--paper)",
-            // Override the hand-drawn body font ("Architects Daughter")
-            // with a standard sans-serif — the help text is
-            // longer-form prose where readability matters more than
-            // matching the rest of the design's hand-drawn vibe.
-            fontFamily:
-              "system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif",
+            position: "fixed",
+            inset: 0,
+            zIndex: 80,
+            background: "rgba(26,26,26,0.32)",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            padding: 24,
           }}
+          role="dialog"
+          aria-label="Käyttöohjeet"
+          aria-modal="true"
         >
-          <HelpSection title="Kartan navigointi">
-            <li>
-              <b>Klikkaus</b> valitsee alueen — tulokset näkyvät
-              oikealla.
-            </li>
-            <li>
-              <b>Kaksoisklikkaus</b> porautuu alueen sisään: vaalipiiri →
-              kunta → äänestysalue.
-            </li>
-            <li>
-              Näppäimistöllä: <b>Tab</b>/<b>nuolet</b> siirtyvät alueesta
-              toiseen, <b>Shift+Tab</b> toiseen suuntaan,{" "}
-              <b>Enter</b> porautuu sisään, <b>Esc</b> poistaa fokuksen.
-            </li>
-            <li>
-              Oikean yläkulman <b>Kunta / Hyvinvointialue</b> -valitsin
-              ryhmittelee kunnat hyvinvointialueittain.
-            </li>
-          </HelpSection>
-          <HelpSection title="Työnkulut + mukautettu kaava">
-            <li>
-              Ylärivin pillerit ovat valmiit työnkulut: suurin puolue,
-              kannatus %, äänimäärä, kannatuksen muutos.
-            </li>
-            <li>
-              <b>+ Mukautettu</b> avaa kaavan rakentajan — voit verrata
-              esim. <i>Vihreät 2023 − Vihreät 2019</i> tai yksittäisen
-              ehdokkaan kannatusta puolueensa kannatukseen.
-            </li>
-            <li>
-              <b>Skaalaus</b>-painikkeet: <i>Äänimäärä</i> näyttää
-              kaavan arvon raakana äänimääränä, <i>Prosenttiyksikköä</i>{" "}
-              %-yksikköinä ja <i>Suhteellinen muutos %</i> kaavan
-              viimeiseen termiin verrattuna prosentteina.
-            </li>
-            <li>
-              <i>Älä huomioi Ahvenanmaata</i> jättää Ahvenanmaan
-              väriliukuman ulkopuolelle, jotta muut alueet erottuvat
-              kunnolla.
-            </li>
-          </HelpSection>
-          <HelpSection title="Jakaminen + tallennus">
-            <li>
-              <b>Jaa linkki</b> kopioi nykyisen näkymän osoitteen
-              leikepöydälle — toinen käyttäjä saa saman näkymän
-              avaamalla linkin.
-            </li>
-            <li>
-              <b>Lataa kuvana</b> tarjoaa kolme vaihtoehtoa:{" "}
-              <i>Karttakuva (SVG)</i> vektoriksi,{" "}
-              <i>Karttakuva (PNG)</i> rasteriksi tai{" "}
-              <i>Koko näkymä (PNG)</i> sisältäen ledger-paneelin.
-            </li>
-            <li>
-              Mukautetut kaavat tallentuvat selaimeen — vain sinä näet
-              omat kaavasi, eivät muut sivuston käyttäjät.
-            </li>
-          </HelpSection>
+          <div
+            onClick={(e) => e.stopPropagation()}
+            style={{
+              background: "var(--paper)",
+              border: "var(--border-default) solid var(--line)",
+              borderRadius: "var(--radius-card)",
+              boxShadow: "var(--shadow-pop)",
+              padding: "20px 24px",
+              fontSize: 13.5,
+              lineHeight: 1.55,
+              width: "min(1000px, 96vw)",
+              maxHeight: "90vh",
+              fontFamily:
+                "system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif",
+              display: "flex",
+              flexDirection: "column",
+              gap: 14,
+            }}
+          >
+            <div
+              style={{
+                display: "flex",
+                justifyContent: "space-between",
+                alignItems: "baseline",
+                gap: 12,
+              }}
+            >
+              <h2
+                style={{
+                  fontFamily: "var(--font-display)",
+                  fontWeight: 700,
+                  fontSize: 22,
+                  margin: 0,
+                }}
+              >
+                Käyttöohjeet
+              </h2>
+              <span
+                onClick={() => setOpen(false)}
+                role="button"
+                tabIndex={0}
+                aria-label="Sulje"
+                style={{
+                  cursor: "pointer",
+                  fontSize: 18,
+                  padding: "2px 10px",
+                  color: "var(--ink)",
+                }}
+              >
+                ✕
+              </span>
+            </div>
+            <div
+              style={{
+                display: "grid",
+                gridTemplateColumns: "1fr 1fr 1fr",
+                gap: 22,
+              }}
+            >
+              <HelpSection title="Kartan navigointi">
+                <li>
+                  <b>Klikkaus</b> valitsee alueen — tulokset näkyvät
+                  vasemmalla.
+                </li>
+                <li>
+                  <b>Kaksoisklikkaus</b> porautuu alueen sisään:
+                  vaalipiiri → kunta → äänestysalue.
+                </li>
+                <li>
+                  <b>Tab</b> / <b>nuolet</b> siirtyvät alueesta toiseen,{" "}
+                  <b>Shift+Tab</b> toiseen suuntaan, <b>Enter</b>{" "}
+                  porautuu sisään, <b>Esc</b> poistaa fokuksen.
+                </li>
+                <li>
+                  <b>Lisäasetukset</b> oikealla sisältää{" "}
+                  <i>Kunta / Hyvinvointialue</i> -valitsimen kuntien
+                  ryhmittelyyn.
+                </li>
+              </HelpSection>
+              <HelpSection title="Mittari + mukautettu kaava">
+                <li>
+                  <b>Mittari</b>-pudotus valitsee näkymän: Suurin
+                  puolue, Puolueen kannatus %, Äänimäärä, Kannatuksen
+                  muutos tai oma mukautettu kaava.
+                </li>
+                <li>
+                  <b>+ Uusi mukautettu kaava…</b> avaa kaavan
+                  rakentajan — voit verrata esim.{" "}
+                  <i>Vihreät 2023 − Vihreät 2019</i> tai yksittäisen
+                  ehdokkaan kannatusta puolueeseen.
+                </li>
+                <li>
+                  <b>Skaala</b> kaavalle: <i>Äänimäärä</i> raakana,{" "}
+                  <i>Prosenttiyksikköä</i> %-yksikköinä,{" "}
+                  <i>Suhteellinen muutos %</i> kaavan viimeiseen
+                  termiin verrattuna.
+                </li>
+                <li>
+                  <b>Älä huomioi Ahvenanmaata</b> (Lisäasetukset)
+                  jättää Ahvenanmaan väriliukuman ulkopuolelle.
+                </li>
+              </HelpSection>
+              <HelpSection title="Jakaminen + tallennus">
+                <li>
+                  <b>Jaa linkki</b> kopioi nykyisen näkymän osoitteen
+                  leikepöydälle — toinen käyttäjä saa saman näkymän
+                  avaamalla linkin.
+                </li>
+                <li>
+                  <b>Lataa kuvana</b>: <i>Karttakuva (SVG)</i>{" "}
+                  vektoriksi, <i>Karttakuva (PNG)</i> rasteriksi tai{" "}
+                  <i>Koko näkymä (PNG)</i> sisältäen sivuelementit.
+                </li>
+                <li>
+                  Mukautetut kaavat tallentuvat selaimeen — vain sinä
+                  näet omat kaavasi, eivät muut sivuston käyttäjät.
+                </li>
+              </HelpSection>
+            </div>
+          </div>
         </div>
       ) : null}
-    </div>
+    </>
   );
 }
 
