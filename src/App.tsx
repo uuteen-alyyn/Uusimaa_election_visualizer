@@ -511,6 +511,24 @@ export function App(): JSX.Element {
     };
   }, [source, level, parentKunta, election]);
 
+  // Parallel load of the ref-election's äänestysalue rows for the
+  // same drilled-in kunta — required for change mode at aa level.
+  // Empty when level !== "aa" or the ref fixture has no aa data.
+  const [refAaResults, setRefAaResults] = useState<RegionResult[]>([]);
+  useEffect(() => {
+    if (level !== "aa" || !parentKunta || mode !== "change") {
+      setRefAaResults([]);
+      return;
+    }
+    let cancelled = false;
+    void source.listAreas("aa", parentKunta, refElection).then((rows) => {
+      if (!cancelled) setRefAaResults(rows);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [source, level, parentKunta, refElection, mode]);
+
   /** Generated square-grid äänestysalue features, sized to the
    *  kunta's actual aa count. */
   const aaFeatures = useMemo(() => {
@@ -562,6 +580,19 @@ export function App(): JSX.Element {
     return { min, max };
   }, [mode, focusParty, currentResults, visibleRegionIds]);
 
+  /** aa-row lookups, used by every level-aware computation below
+   *  (changeRange, votesRange, getFill, getTooltip, no-data check).
+   *  Defined here so they're visible to changeRange / hasNoDataInView
+   *  which run before the tooltip block. */
+  const aaById = useMemo(
+    () => new Map(aaResults.map((r) => [r.regionId, r])),
+    [aaResults],
+  );
+  const refAaById = useMemo(
+    () => new Map(refAaResults.map((r) => [r.regionId, r])),
+    [refAaResults],
+  );
+
   /** Range of percentage-point swings across visible regions — same
    *  rationale as `supportRange` but for the diverging change ramp. */
   const changeRange = useMemo(() => {
@@ -569,8 +600,14 @@ export function App(): JSX.Element {
     let min = Infinity;
     let max = -Infinity;
     for (const id of visibleRegionIds) {
-      const a = currentResults.get(id)?.shares[focusParty];
-      const b = refResults.get(id)?.shares[focusParty];
+      // At aa level the rows live in aaById / refAaById, not in the
+      // vp+kunta currentResults / refResults maps.
+      const a =
+        currentResults.get(id)?.shares[focusParty] ??
+        aaById.get(id)?.shares[focusParty];
+      const b =
+        refResults.get(id)?.shares[focusParty] ??
+        refAaById.get(id)?.shares[focusParty];
       if (a == null || b == null) continue;
       const d = a - b;
       if (d < min) min = d;
@@ -578,7 +615,7 @@ export function App(): JSX.Element {
     }
     if (!Number.isFinite(min) || !Number.isFinite(max) || min === max) return null;
     return { min, max };
-  }, [mode, focusParty, currentResults, refResults, visibleRegionIds]);
+  }, [mode, focusParty, currentResults, refResults, aaById, refAaById, visibleRegionIds]);
 
   /** Range of votes across visible regions — party-specific when a
    *  focus party is set (the votes mode's party picker), total
@@ -629,16 +666,13 @@ export function App(): JSX.Element {
    *  At vp/kunta level it's `currentResults`; at aa level we
    *  also merge `aaResults` since those rows aren't in the
    *  vp+kunta map. */
-  const aaById = useMemo(
-    () => new Map(aaResults.map((r) => [r.regionId, r])),
-    [aaResults],
-  );
 
   const getFill = useCallback(
     (regionId: string): string => {
       const result =
         currentResults?.get(regionId) ?? aaById.get(regionId) ?? null;
-      const refResult = refResults?.get(regionId) ?? null;
+      const refResult =
+        refResults?.get(regionId) ?? refAaById.get(regionId) ?? null;
       const formulaValue = formulaValueByRegion.get(regionId) ?? null;
       return fillForRegion(result, mode, {
         focusParty,
@@ -654,6 +688,7 @@ export function App(): JSX.Element {
       currentResults,
       aaById,
       refResults,
+      refAaById,
       mode,
       focusParty,
       formulaValueByRegion,
@@ -693,7 +728,8 @@ export function App(): JSX.Element {
           return `${label} — ${NUM_FI.format(v)} ääntä`;
         }
         case "change": {
-          const refResult = refResults?.get(regionId);
+          const refResult =
+            refResults?.get(regionId) ?? refAaById.get(regionId);
           if (!focusParty || !refResult) return `${label} — Ei vertailutietoja`;
           const delta = pointChange(result, refResult, focusParty);
           if (delta == null) return `${label} — Ei vertailutietoja`;
@@ -711,7 +747,7 @@ export function App(): JSX.Element {
         }
       }
     },
-    [currentResults, aaById, refResults, mode, focusParty, formulaValueByRegion, framing],
+    [currentResults, aaById, refResults, refAaById, mode, focusParty, formulaValueByRegion, framing],
   );
 
   /* ─── Legend inputs ────────────────────────────────────── */
@@ -738,12 +774,17 @@ export function App(): JSX.Element {
     if (!currentResults) return false;
     if (mode === "formula") return false;
     for (const id of visibleRegionIds) {
-      const r = currentResults.get(id);
+      const r = currentResults.get(id) ?? aaById.get(id);
       if (!r) return true;
-      if (mode === "change" && (!focusParty || !refResults?.get(id))) return true;
+      if (
+        mode === "change" &&
+        (!focusParty ||
+          !(refResults?.get(id) ?? refAaById.get(id)))
+      )
+        return true;
     }
     return false;
-  }, [mode, currentResults, refResults, focusParty, visibleRegionIds]);
+  }, [mode, currentResults, aaById, refResults, refAaById, focusParty, visibleRegionIds]);
 
   /* ─── Drill handlers ───────────────────────────────────── */
 

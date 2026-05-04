@@ -112,14 +112,26 @@ export function HierarchyMap({
   /** Shorten the on-map label so it fits inside a small grid cell.
    *  The full label (e.g. "091 001A Kruununhaka A") is preserved
    *  for tooltips and screen readers via `getTooltip`; on the map
-   *  itself we render just the area name part. */
+   *  we render the first 4 letters of the name + ".", followed by
+   *  the first letter of the next word when one exists:
+   *    "091 001A Kruununhaka A"  → "Krun. A"
+   *    "091 002A Etu-Töölö"      → "Etu-."
+   *    "091 010A Maunula"        → "Maun."
+   */
   const shortLabelFor = (raw: string): string => {
     if (level !== "aa") return raw;
-    // aa labels arrive as "<kuntakoodi> <aa-num>[suffix] <name>".
-    // Drop the first two whitespace-separated tokens.
-    const parts = raw.split(/\s+/);
-    if (parts.length <= 2) return raw;
-    return parts.slice(2).join(" ");
+    // aa labels arrive as "<kuntakoodi> <aa-num>[suffix] <name…>".
+    // Drop the first two whitespace-separated tokens (numeric prefix).
+    const tokens = raw.split(/\s+/);
+    const nameTokens =
+      tokens.length > 2 && /^\d/.test(tokens[0] ?? "")
+        ? tokens.slice(2)
+        : tokens;
+    const head = (nameTokens[0] ?? "").slice(0, 4);
+    if (!head) return raw;
+    if (nameTokens.length <= 1) return `${head}.`;
+    const tail = (nameTokens[1] ?? "").charAt(0);
+    return tail ? `${head}. ${tail}` : `${head}.`;
   };
 
   /* Keyboard navigation: when the SVG has focus, Tab/→/↓ cycle to
