@@ -292,8 +292,12 @@ export function HierarchyMap({
             const isSel = selected === HEL_ID;
             const isHover = hoverId === HEL_ID;
             // Square in the Gulf of Finland (empty viewBox region).
-            const sqX = 285;
-            const sqY = 605;
+            // Pulled in toward Uusimaa from the original far-east
+            // position so the leader line is short and the callout
+            // reads as "this little square is part of the country
+            // map" rather than a free-floating legend.
+            const sqX = 245;
+            const sqY = 600;
             const sqSize = 18;
             const sqCy = sqY + sqSize / 2;
             return (
