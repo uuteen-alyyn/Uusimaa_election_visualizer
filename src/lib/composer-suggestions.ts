@@ -322,12 +322,15 @@ export function buildSuggestions(
       push({
         id: `sel-type`,
         kind: "selector",
-        label: `$${name} — Election type selector`,
-        sub: "adds a Ledger control for picking the type",
+        label: `$${name} — vaalityyppi-valitsin`,
+        sub: "lisää valitsimen Ledger-paneeliin",
         action: "setField",
         field: "selType",
         value: name,
-        score: 30,
+        // Above the score-50 type entries so the selector option is
+        // the first thing the user sees at the top of the dropdown.
+        // Jump to score 95 on a literal "$" query.
+        score: q.startsWith("$") ? 95 : 55,
       });
     }
   } else if (activeField === "year") {
@@ -375,7 +378,11 @@ export function buildSuggestions(
         action: "setField",
         field: "selYear",
         value: name,
-        score: 28,
+        // Sit just above the score-50 year entries so the late-
+        // binding selector is visible at the top of the year list,
+        // not buried under every concrete year. Jump to the top
+        // when the user explicitly types "$".
+        score: q.startsWith("$") ? 95 : 55,
       });
     }
   } else if (activeField === "who") {

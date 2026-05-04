@@ -367,7 +367,7 @@ async function buildFixture(
     await attachEuCandidates(year, areas);
     const withCands = areas.filter((a) => (a.candidates?.length ?? 0) > 0).length;
     console.log(
-      `[prefetch]   ${electionId}: eu candidates → ${withCands} vp regions`,
+      `[prefetch]   ${electionId}: eu candidates → ${withCands} regions`,
     );
   }
 
@@ -951,6 +951,7 @@ async function attachEuCandidates(
 
     type Row = { vp: string; cand: string; votes: number };
     const byVp = new Map<string, Row[]>();
+    const nationalVotes = new Map<string, number>();
     for (const r of resp.data) {
       const cand = String(r.key[1] ?? "");
       const vp = String(r.key[2] ?? "");
@@ -960,26 +961,141 @@ async function attachEuCandidates(
       const arr = byVp.get(vp);
       if (arr) arr.push({ vp, cand, votes: v });
       else byVp.set(vp, [{ vp, cand, votes: v }]);
+      nationalVotes.set(cand, (nationalVotes.get(cand) ?? 0) + v);
     }
+
+    const buildCandidate = (r: Row): Candidate => {
+      const prefix = r.cand.slice(0, 2);
+      const slug = prefixToSlug.get(prefix) ?? `_${prefix}`;
+      return {
+        id: r.cand,
+        name: candNames.get(r.cand) ?? r.cand,
+        party: slug,
+        votes: r.votes,
+      };
+    };
 
     for (const region of areas) {
       if (!/^\d{2}$/.test(region.regionId)) continue;
       const vpCode = `VP${region.regionId}`;
       const recs = byVp.get(vpCode);
       if (!recs) continue;
-      const list: Candidate[] = recs.map((r) => {
-        const prefix = r.cand.slice(0, 2);
-        const slug = prefixToSlug.get(prefix) ?? `_${prefix}`;
-        return {
-          id: r.cand,
-          name: candNames.get(r.cand) ?? r.cand,
-          party: slug,
-          votes: r.votes,
-        };
-      });
+      const list = recs.map(buildCandidate);
       list.sort((a, b) => b.votes - a.votes);
       if (list.length > 0) region.candidates = list;
     }
+
+    // Top-N candidates' per-kunta + per-AA breakdown via 14gw. The
+    // table requires a single-candidate filter (full all-cand ×
+    // all-area would blow PxWeb's 12k-cell limit), so we fetch the
+    // top names by national votes one at a time. Cap at TOP_N_EU
+    // to keep the prefetch under ~90 seconds; candidates outside
+    // that cap stay vp-level only (formula chips referring to a
+    // small candidate at kunta level read as "no data", same as
+    // every other "outside the cap" case).
+    const TOP_N_EU = 60;
+    const topCands = Array.from(nationalVotes.entries())
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, TOP_N_EU)
+      .map(([id]) => id);
+    if (topCands.length === 0) return;
+
+    const aaTableId = "statfin_euvaa_pxt_14gw";
+    const aaMeta = await withRetry(
+      () => pxwebClient.getTableMetadata(dbPath, aaTableId),
+      `eu cand-aa meta`,
+    );
+    const areaVar = aaMeta.variables.find(
+      (v) =>
+        v.code === "Alue/Äänestysalue" ||
+        v.code === "Äänestysalue" ||
+        v.code === "Alue",
+    );
+    const tiedotVar = aaMeta.variables.find(
+      (v) => v.code === "Tiedot" || v.code === "Äänestystiedot",
+    );
+    const votesTiedot =
+      tiedotVar?.values.find(
+        (_, i) =>
+          /äänimäärä|äänet/.test(
+            (tiedotVar.valueTexts[i] ?? "").toLowerCase(),
+          ),
+      ) ?? "euvaa_aanet";
+    if (!areaVar || !tiedotVar) {
+      console.warn(`[prefetch]   eu cand-aa: unexpected schema on ${aaTableId}`);
+      return;
+    }
+
+    // candId → (canonical region id → votes). Built incrementally
+    // across the per-candidate queries so a transient failure on
+    // one candidate doesn't drop the rest.
+    const byArea = new Map<string, Map<string, number>>();
+    let okCount = 0;
+    for (const candId of topCands) {
+      try {
+        const r = await withRetry(
+          () =>
+            pxwebClient.queryTable(dbPath, aaTableId, {
+              query: [
+                { code: "Vuosi", selection: { filter: "item", values: [String(year)] } },
+                { code: areaVar.code, selection: { filter: "all", values: ["*"] } },
+                { code: "Ehdokas", selection: { filter: "item", values: [candId] } },
+                { code: tiedotVar.code, selection: { filter: "item", values: [votesTiedot] } },
+              ],
+              response: { format: "json" as const },
+            }),
+          `eu cand-aa ${candId}`,
+        );
+        const keyCols = r.columns.filter((c) => c.type !== "c");
+        const areaIdx = keyCols.findIndex((c) => c.code === areaVar.code);
+        if (areaIdx < 0) continue;
+        const perArea = new Map<string, number>();
+        for (const row of r.data) {
+          const rawArea = row.key[areaIdx];
+          if (!rawArea) continue;
+          const v = Number(row.values[0]);
+          if (!Number.isFinite(v) || v <= 0) continue;
+          // Index by both canonical and raw — kunta rows match the
+          // canonical 3-digit form, AA rows use the raw PxWeb code.
+          perArea.set(canonicalizeAreaId(rawArea), v);
+          perArea.set(rawArea, v);
+        }
+        if (perArea.size > 0) {
+          byArea.set(candId, perArea);
+          okCount++;
+        }
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : String(e);
+        console.warn(`[prefetch]   eu cand-aa ${candId}: ${msg}`);
+      }
+    }
+
+    // Attach per-area top candidates list. Skip vp rows — those
+    // already have the full per-vp list from 14gx above.
+    let merged = 0;
+    for (const region of areas) {
+      if (/^\d{2}$/.test(region.regionId)) continue;
+      const local: Candidate[] = [];
+      for (const candId of topCands) {
+        const votes = byArea.get(candId)?.get(region.regionId);
+        if (votes == null || votes <= 0) continue;
+        const prefix = candId.slice(0, 2);
+        const slug = prefixToSlug.get(prefix) ?? `_${prefix}`;
+        local.push({
+          id: candId,
+          name: candNames.get(candId) ?? candId,
+          party: slug,
+          votes,
+        });
+      }
+      if (local.length === 0) continue;
+      local.sort((a, b) => b.votes - a.votes);
+      region.candidates = local.slice(0, TOP_N_PER_REGION);
+      merged++;
+    }
+    console.log(
+      `[prefetch]   eu candidates kunta/aa: ${okCount}/${topCands.length} candidate fetches → ${merged} regions`,
+    );
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
     console.warn(`[prefetch]   eu candidates: ${msg}`);
