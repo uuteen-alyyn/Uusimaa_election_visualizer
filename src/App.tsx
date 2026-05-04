@@ -1457,31 +1457,9 @@ export function App(): JSX.Element {
             }}
           />
 
-          {/* Legend (color-scheme explanation) — sits in the right
-              column so it's visible alongside the map. */}
-          <div>
-            <DynamicLegend
-              mode={mode}
-              focusParty={focusParty}
-              winnerParties={winnerPartiesInView}
-              hasNoData={hasNoDataInView}
-              supportRange={supportRange}
-              changeRange={changeRange}
-              votesRange={votesRange}
-              formulaRange={formulaRange}
-              formulaSummary={
-                mode === "formula" && resolvedFormula.length > 0
-                  ? formulaSummary(resolvedFormula)
-                  : null
-              }
-              framing={mode === "formula" ? framing : null}
-              electionLabel={electionLabel}
-              refElectionLabel={mode === "change" ? refLabel : undefined}
-            />
-          </div>
-
-          {/* Selector bindings — second row only when a formula has
-              `$A`, `$Y`, etc. */}
+          {/* Selector bindings — only when a formula has `$A`, `$Y`,
+              etc. Sits above the legend so the legend stays anchored
+              to the column bottom. */}
           {mode === "formula" && activeSelectors.length > 0 ? (
             <div
               style={{
@@ -1501,6 +1479,31 @@ export function App(): JSX.Element {
               />
             </div>
           ) : null}
+
+          {/* Legend (color-scheme explanation) — pinned to the bottom
+              of the right column via `marginTop: auto` so any extra
+              controls added above push downward toward it instead of
+              shifting the legend's position. */}
+          <div style={{ marginTop: "auto" }}>
+            <DynamicLegend
+              mode={mode}
+              focusParty={focusParty}
+              winnerParties={winnerPartiesInView}
+              hasNoData={hasNoDataInView}
+              supportRange={supportRange}
+              changeRange={changeRange}
+              votesRange={votesRange}
+              formulaRange={formulaRange}
+              formulaSummary={
+                mode === "formula" && resolvedFormula.length > 0
+                  ? formulaSummary(resolvedFormula)
+                  : null
+              }
+              framing={mode === "formula" ? framing : null}
+              electionLabel={electionLabel}
+              refElectionLabel={mode === "change" ? refLabel : undefined}
+            />
+          </div>
         </section>
       </div>
 
