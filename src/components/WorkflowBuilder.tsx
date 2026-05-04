@@ -32,6 +32,9 @@ interface WorkflowBuilderProps {
    *  composer to surface candidate chip suggestions once a chip's
    *  type+year (and round, for pres) are resolved. */
   loadCandidatesForElection?: (electionId: ElectionId) => Promise<Candidate[]>;
+  /** Election ids known to have data — used to filter the year picker
+   *  in the composer so future / no-data elections are hidden. */
+  availableElectionIds?: ReadonlySet<ElectionId> | null;
 }
 
 export function WorkflowBuilder({
@@ -40,6 +43,7 @@ export function WorkflowBuilder({
   onUpdate,
   onClose,
   loadCandidatesForElection,
+  availableElectionIds,
 }: WorkflowBuilderProps): JSX.Element {
   const isEdit = Boolean(initial?.id);
   const [tokens, setTokens] = useState<FormulaToken[]>(initial?.formula ?? []);
@@ -196,6 +200,7 @@ export function WorkflowBuilder({
           selectors={selectors}
           setSelectors={setSelectors}
           loadCandidatesForElection={loadCandidatesForElection}
+          availableElectionIds={availableElectionIds ?? null}
         />
 
         {/* Selector friendly names */}

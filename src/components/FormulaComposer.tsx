@@ -19,6 +19,7 @@ import {
   stripLastField,
   type SelectorRecord,
   type Suggestion,
+  type WhoMode,
 } from "../lib/composer-suggestions";
 import { chipElectionId } from "../lib/formula";
 import type {
@@ -37,6 +38,10 @@ interface FormulaComposerProps {
    *  triggers the fetch when the active chip's election resolves
    *  and the user is on the "who" slot. */
   loadCandidatesForElection?: (electionId: ElectionId) => Promise<Candidate[]>;
+  /** Election ids that have data — used to filter the year picker
+   *  so the user can't pick a no-data election. `null` while
+   *  probing means "show everything". */
+  availableElectionIds?: ReadonlySet<ElectionId> | null;
 }
 
 export function FormulaComposer({
@@ -45,10 +50,12 @@ export function FormulaComposer({
   selectors,
   setSelectors,
   loadCandidatesForElection,
+  availableElectionIds = null,
 }: FormulaComposerProps): JSX.Element {
   const [value, setValue] = useState("");
   const [open, setOpen] = useState(false);
   const [idx, setIdx] = useState(0);
+  const [whoMode, setWhoMode] = useState<WhoMode>("party");
   const inputRef = useRef<HTMLInputElement | null>(null);
 
   // Active chip = the trailing chip if it's still incomplete, else null.
@@ -57,10 +64,17 @@ export function FormulaComposer({
     lastChip && lastChip.kind === "chip" && !chipIsComplete(lastChip) ? lastChip : null;
   const activeField = activeChip ? nextFieldFor(activeChip) : "type";
 
-  // Reset highlighted index whenever the query or slot changes.
+  // Reset highlighted index whenever the query, slot, or who-mode changes.
   useEffect(() => {
     setIdx(0);
-  }, [value, activeField]);
+  }, [value, activeField, whoMode]);
+
+  // When the active chip changes (new chip starts, or the user
+  // backspaces out of the who slot), default the who-mode back to
+  // "party" — that's the more common pick.
+  useEffect(() => {
+    if (activeField !== "who") setWhoMode("party");
+  }, [activeField, activeChip]);
 
   // Resolve the active chip's election (when type+year are both
   // bound to concrete values) so we can offer candidate suggestions
@@ -87,10 +101,11 @@ export function FormulaComposer({
   }, [activeElectionId, loadCandidatesForElection]);
 
   const suggestions = useMemo(() => {
-    // Bigger cap when both party + candidate options exist at the
-    // "who" slot, so the user can see they're alternatives.
+    // Candidate sub-mode caps higher (12 names instead of 8 generic
+    // results) so the user has plenty to scroll. Other slots stay
+    // at the original 8-result cap.
     const cap =
-      activeField === "who" && candidates.length > 0 ? 18 : 8;
+      activeField === "who" && whoMode === "candidate" ? 16 : 8;
     return buildSuggestions(
       value,
       activeField,
@@ -98,8 +113,18 @@ export function FormulaComposer({
       selectors,
       candidates,
       cap,
+      availableElectionIds,
+      whoMode,
     );
-  }, [value, activeField, activeChip, selectors, candidates]);
+  }, [
+    value,
+    activeField,
+    activeChip,
+    selectors,
+    candidates,
+    availableElectionIds,
+    whoMode,
+  ]);
 
   const focusInput = (): void => {
     inputRef.current?.focus();
@@ -198,13 +223,16 @@ export function FormulaComposer({
     setTokens((arr) => arr.filter((_, j) => j !== i));
   };
 
+  const candidatesAvailable = activeField === "who" && candidates.length > 0;
   const fieldPrompt =
     activeField === "type"
       ? 'vaalin tyyppi… (esim. "Eduskuntavaalit")'
       : activeField === "year"
         ? 'vuosi… (esim. 2023)'
         : activeField === "who"
-          ? "puolue tai $-valitsin…"
+          ? whoMode === "candidate"
+            ? "etsi ehdokasta nimellä…"
+            : "puolue tai $-valitsin…"
           : "";
 
   const isEmpty = tokens.length === 0 && value === "";
@@ -304,7 +332,7 @@ export function FormulaComposer({
           />
         </span>
 
-        {open && suggestions.length > 0 ? (
+        {open && (suggestions.length > 0 || candidatesAvailable) ? (
           <div
             style={{
               position: "absolute",
@@ -316,29 +344,16 @@ export function FormulaComposer({
               border: "var(--border-default) solid var(--line)",
               borderRadius: "var(--radius-box)",
               boxShadow: "var(--shadow-pop)",
-              maxHeight: 280,
+              maxHeight: 320,
               overflowY: "auto",
             }}
           >
+            {candidatesAvailable ? (
+              <WhoModeToggle value={whoMode} onChange={setWhoMode} />
+            ) : null}
             {suggestions.map((s, i) => {
-              // Insert a section divider when the suggestion kind
-              // changes from "party" to "candidate" at the who slot,
-              // so the user sees the two paths are alternatives.
-              const prev = i > 0 ? suggestions[i - 1] : null;
-              const showCandidateHeader =
-                activeField === "who" &&
-                s.kind === "candidate" &&
-                (!prev || prev.kind !== "candidate");
-              const showPartyHeader =
-                activeField === "who" &&
-                s.kind === "party" &&
-                (!prev || (prev.kind !== "party" && prev.kind !== "selector"));
               return (
               <div key={`row-${s.id}`}>
-                {showPartyHeader ? <SectionHeader>Puolueet</SectionHeader> : null}
-                {showCandidateHeader ? (
-                  <SectionHeader>Ehdokkaat (vaihtoehtoinen — valitse joko puolue tai ehdokas)</SectionHeader>
-                ) : null}
               <div
                 key={s.id}
                 onMouseDown={(e) => {
@@ -543,24 +558,51 @@ function ChipPill({
   );
 }
 
-/** Group divider shown above the first party row and (when
- *  candidates are also offered) above the first candidate row,
- *  so the suggestion list visually conveys "pick one or the other". */
-function SectionHeader({ children }: { children: React.ReactNode }): JSX.Element {
+/** Inline toggle pinned to the top of the suggestion dropdown when
+ *  the chip's election has candidate data — lets the user pick
+ *  between selecting a party or searching for a specific candidate. */
+function WhoModeToggle({
+  value,
+  onChange,
+}: {
+  value: WhoMode;
+  onChange: (m: WhoMode) => void;
+}): JSX.Element {
   return (
     <div
       style={{
-        fontSize: 10,
-        opacity: 0.55,
-        textTransform: "uppercase",
-        letterSpacing: 0.5,
-        padding: "6px 10px 2px",
-        borderTop: "1px dotted var(--hair)",
+        display: "flex",
+        gap: 4,
+        padding: "8px 10px",
+        borderBottom: "var(--border-default) dotted var(--hair)",
         background: "var(--paper-2)",
-        fontStyle: "italic",
+        position: "sticky",
+        top: 0,
+        zIndex: 1,
       }}
     >
-      {children}
+      {(["party", "candidate"] as WhoMode[]).map((m) => {
+        const active = value === m;
+        return (
+          <span
+            key={m}
+            className={"pill " + (active ? "on" : "")}
+            onMouseDown={(e) => {
+              e.preventDefault();
+              onChange(m);
+            }}
+            role="button"
+            tabIndex={0}
+            style={{
+              cursor: "pointer",
+              fontSize: 12,
+              padding: "2px 10px",
+            }}
+          >
+            {m === "party" ? "Puolue" : "Ehdokas"}
+          </span>
+        );
+      })}
     </div>
   );
 }

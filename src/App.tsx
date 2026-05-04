@@ -1219,6 +1219,7 @@ export function App(): JSX.Element {
             setEditingWorkflow(null);
           }}
           loadCandidatesForElection={(id) => source.listCandidates(id)}
+          availableElectionIds={electionsWithData}
         />
       ) : null}
 

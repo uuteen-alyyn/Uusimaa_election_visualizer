@@ -177,7 +177,9 @@ describe("buildSuggestions — year slot", () => {
     const presLabels = out
       .filter((s) => s.kind === "year")
       .map((s) => s.label);
-    expect(presLabels.some((l) => l.includes("2. kierros") || l.includes("1. kierros"))).toBe(true);
+    // Round disambiguator is the Roman numeral "I" / "II" — both
+    // pres 2024 entries (r1 and r2) should be present and labelled.
+    expect(presLabels.some((l) => /·\s*I$|·\s*II$/.test(l))).toBe(true);
   });
 });
 

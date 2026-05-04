@@ -21,10 +21,17 @@ import {
 import type {
   Candidate,
   ChipFields,
+  ElectionId,
   ElectionTypeId,
   FormulaToken,
   PartyId,
 } from "../types/elections";
+
+/** Which "who" sub-mode the composer is in — only meaningful when
+ *  `activeField === "who"`. The composer renders an inline toggle
+ *  to switch between picking a party or searching for a specific
+ *  candidate; suggestions filter accordingly. */
+export type WhoMode = "party" | "candidate";
 
 /* ─── Progressive chip display text ─────────────────────────── */
 
@@ -227,6 +234,12 @@ export function buildSuggestions(
   selectors: ReadonlyArray<SelectorRecord>,
   candidatesForElection: ReadonlyArray<Candidate> | null = null,
   maxResults = 8,
+  /** Filter year + type suggestions to elections in this set. When
+   *  null, no availability filter is applied (used for tests). */
+  availableElectionIds: ReadonlySet<ElectionId> | null = null,
+  /** "party" or "candidate" sub-mode at the who slot. Only consulted
+   *  when activeField === "who". Default party for backwards compat. */
+  whoMode: WhoMode = "party",
 ): Suggestion[] {
   const q = query.trim();
   const out: Suggestion[] = [];
@@ -306,7 +319,11 @@ export function buildSuggestions(
   } else if (activeField === "year") {
     const curType =
       activeChip?.kind === "chip" ? activeChip.fields.type : undefined;
-    const filtered = ELECTIONS.filter((e) => !curType || e.typeId === curType);
+    const filtered = ELECTIONS.filter(
+      (e) =>
+        (!curType || e.typeId === curType) &&
+        (!availableElectionIds || availableElectionIds.has(e.id)),
+    );
     for (const e of filtered) {
       const pool = [String(e.year), e.label, e.shortLabel];
       if (e.typeId === "pres" && e.round) {
@@ -314,17 +331,20 @@ export function buildSuggestions(
       }
       let s = 0;
       for (const str of pool) s = Math.max(s, score(q, str));
+      // Only the year — round disambiguator for pres ("· I" / "· II")
+      // appended for clarity since a year hosts two pres rounds.
       const lbl =
         e.typeId === "pres" && e.round
-          ? `${e.year} · ${e.round === 2 ? "2. kierros" : "1. kierros"}`
+          ? `${e.year} · ${e.round === 2 ? "II" : "I"}`
           : String(e.year);
       const value: { year: number; round?: 1 | 2 } = { year: e.year };
       if (e.round) value.round = e.round;
+      // Sub stays empty so the dropdown reads as a clean year list.
       push({
         id: `yr-${e.id}`,
         kind: "year",
         label: lbl,
-        sub: e.label,
+        sub: "",
         action: "setField",
         field: "year",
         value,
@@ -336,8 +356,8 @@ export function buildSuggestions(
       push({
         id: `sel-year`,
         kind: "selector",
-        label: `$${name} — Year selector`,
-        sub: "adds a Ledger control for picking the year",
+        label: `$${name} — vuosi-valitsin`,
+        sub: "lisää valitsimen Ledger-paneeliin",
         action: "setField",
         field: "selYear",
         value: name,
@@ -345,57 +365,58 @@ export function buildSuggestions(
       });
     }
   } else if (activeField === "who") {
-    for (const p of PARTIES) {
-      const s = Math.max(score(q, p.name), score(q, p.abbr), score(q, p.id));
-      push({
-        id: `party-${p.id}`,
-        kind: "party",
-        label: p.name,
-        sub: `party · ${p.abbr}`,
-        action: "setField",
-        field: "who",
-        value: { party: p.id },
-        score: s,
-      });
-    }
-    // Candidates from the chip's resolved election. The caller looks
-    // up the right list (by chipElectionId on the active chip's
-    // type+year+round) and passes it in. When the chip's election
-    // isn't fully resolved yet, candidatesForElection is null and
-    // we just don't surface candidate suggestions.
-    if (candidatesForElection && candidatesForElection.length > 0) {
-      for (const c of candidatesForElection) {
-        const s = score(q, c.name);
-        if (s <= 0 && q !== "") continue;
-        const partyAbbr = PARTY_BY_ID[c.party]?.abbr ?? c.party.replace(/^_/, "").toUpperCase();
+    if (whoMode === "party") {
+      for (const p of PARTIES) {
+        const s = Math.max(score(q, p.name), score(q, p.abbr), score(q, p.id));
         push({
-          id: `cand-${c.id}`,
-          kind: "candidate",
-          label: c.name,
-          sub: `ehdokas · ${partyAbbr}`,
+          id: `party-${p.id}`,
+          kind: "party",
+          label: p.name,
+          sub: `puolue · ${p.abbr}`,
           action: "setField",
           field: "who",
-          value: { candidate: { id: c.id, name: c.name, party: c.party } },
-          // Empty-query: parties get score 1, candidates get 0.5,
-          // so parties land first in the dropdown. Real query matches
-          // (positive `s`) override this and let candidates outrank
-          // parties when the user is typing a name.
-          score: q === "" ? 0.5 : s,
+          value: { party: p.id },
+          score: s,
         });
       }
-    }
-    if (q === "" || q.startsWith("$")) {
-      const name = pickNextSelectorName(selectors);
-      push({
-        id: `sel-who`,
-        kind: "selector",
-        label: `$${name} — Selector (puolue tai ehdokas)`,
-        sub: "adds a Ledger control",
-        action: "setField",
-        field: "selWho",
-        value: name,
-        score: 25,
-      });
+      if (q === "" || q.startsWith("$")) {
+        const name = pickNextSelectorName(selectors);
+        push({
+          id: `sel-who`,
+          kind: "selector",
+          label: `$${name} — puolue/ehdokas-valitsin`,
+          sub: "lisää valitsimen Ledger-paneeliin",
+          action: "setField",
+          field: "selWho",
+          value: name,
+          score: 25,
+        });
+      }
+    } else {
+      // candidate sub-mode — show only the chip-election's candidates.
+      // The query filters by name; with no query we surface the top
+      // ~12 candidates so the user has something to click without
+      // typing.
+      if (candidatesForElection && candidatesForElection.length > 0) {
+        for (const c of candidatesForElection) {
+          const s = score(q, c.name);
+          if (s <= 0 && q !== "") continue;
+          const partyAbbr =
+            PARTY_BY_ID[c.party]?.abbr ?? c.party.replace(/^_/, "").toUpperCase();
+          push({
+            id: `cand-${c.id}`,
+            kind: "candidate",
+            label: c.name,
+            sub: `ehdokas · ${partyAbbr}`,
+            action: "setField",
+            field: "who",
+            value: { candidate: { id: c.id, name: c.name, party: c.party } },
+            // Top candidates first when the query is empty (they're
+            // already in vote-desc order from listCandidates).
+            score: q === "" ? 1 : s,
+          });
+        }
+      }
     }
   }
 
