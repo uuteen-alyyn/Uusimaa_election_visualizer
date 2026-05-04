@@ -48,6 +48,7 @@ export function WorkflowBuilder({
   const isEdit = Boolean(initial?.id);
   const [tokens, setTokens] = useState<FormulaToken[]>(initial?.formula ?? []);
   const [name, setName] = useState<string>(initial?.label ?? "");
+  const [description, setDescription] = useState<string>(initial?.description ?? "");
   const [selectors, setSelectors] = useState<SelectorRecord[]>(
     () => deriveSelectorsFromTokens(initial?.formula ?? []),
   );
@@ -85,6 +86,9 @@ export function WorkflowBuilder({
   const handleSave = (): void => {
     if (!canSave) return;
     const labelText = (name.trim() || autoLabel()).slice(0, 48);
+    const trimmedDesc = description.trim();
+    const descField =
+      trimmedDesc.length > 0 ? { description: trimmedDesc } : {};
     if (isEdit && initial?.id && onUpdate) {
       onUpdate({
         id: initial.id,
@@ -93,6 +97,7 @@ export function WorkflowBuilder({
         label: labelText,
         formula: tokens,
         selectorLabels,
+        ...descField,
       });
     } else {
       onSave({
@@ -102,6 +107,7 @@ export function WorkflowBuilder({
         label: labelText,
         formula: tokens,
         selectorLabels,
+        ...descField,
       });
     }
     onClose();
@@ -202,6 +208,34 @@ export function WorkflowBuilder({
           loadCandidatesForElection={loadCandidatesForElection}
           availableElectionIds={availableElectionIds ?? null}
         />
+
+        {/* Lisätietoja — free-text description shown next to the
+            formula's value in the Ledger when this kaava is applied. */}
+        <div style={{ marginBottom: 14 }}>
+          <FieldLabel>Lisätietoja</FieldLabel>
+          <textarea
+            value={description}
+            onChange={(e) => setDescription(e.target.value.slice(0, 600))}
+            placeholder="Selitä lyhyesti, mitä kaava kuvaa ja miten sitä luetaan…"
+            rows={3}
+            style={{
+              width: "100%",
+              border: "var(--border-default) solid var(--line)",
+              background: "var(--paper-2)",
+              padding: "7px 10px",
+              borderRadius: "var(--radius-box)",
+              fontFamily: "inherit",
+              fontSize: 13,
+              lineHeight: 1.45,
+              resize: "vertical",
+              minHeight: 60,
+              boxSizing: "border-box",
+            }}
+          />
+          <div style={{ fontSize: 10, opacity: 0.55, marginTop: 4, fontStyle: "italic" }}>
+            Valinnainen — näkyy Ledger-paneelissa kaavan arvon vieressä.
+          </div>
+        </div>
 
         {/* Selector friendly names */}
         {activeSelectors.length > 0 ? (

@@ -115,6 +115,11 @@ export interface Workflow {
   selectorLabels?: Record<string, string>;
   /** Default selector bindings, persisted across sessions. */
   defaultBindings?: Record<string, Binding>;
+  /** Optional free-text description shown below the formula value
+   *  in the Ledger when this workflow is the applied one. Lets the
+   *  saver leave themselves a note about what the formula means
+   *  ("Vihreät yliedustus presidentinvaalin pohjalta", etc.). */
+  description?: string;
   /** Marks the four immutable built-ins. */
   builtin?: boolean;
 }

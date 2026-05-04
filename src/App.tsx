@@ -1410,6 +1410,12 @@ export function App(): JSX.Element {
             formulaValue={ledger.formulaValue ?? null}
             formulaSummaryText={ledger.formulaSummaryText ?? null}
             framing={mode === "formula" ? framing : null}
+            formulaDescription={
+              mode === "formula" && appliedWorkflowId
+                ? customWorkflows.find((w) => w.id === appliedWorkflowId)
+                    ?.description ?? null
+                : null
+            }
           />
         </div>
       </main>

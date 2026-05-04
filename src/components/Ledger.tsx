@@ -45,6 +45,9 @@ interface LedgerProps {
   formulaSummaryText?: string | null;
   /** Active framing — affects the unit label and sign on display. */
   framing?: FormulaFraming | null;
+  /** Saver's free-text description of what the active custom
+   *  formula computes. Shown beneath the value block when set. */
+  formulaDescription?: string | null;
 }
 
 const NUM_FI = new Intl.NumberFormat("fi-FI");
@@ -57,6 +60,7 @@ export function Ledger({
   formulaValue = null,
   formulaSummaryText = null,
   framing = null,
+  formulaDescription = null,
 }: LedgerProps): JSX.Element {
   return (
     <aside
@@ -77,6 +81,7 @@ export function Ledger({
           value={formulaValue}
           summaryText={formulaSummaryText}
           framing={framing}
+          description={formulaDescription}
         />
       ) : null}
       <PartyShares result={result} loading={loading} />
@@ -91,10 +96,12 @@ function FormulaValueBlock({
   value,
   summaryText,
   framing,
+  description,
 }: {
   value: number | null;
   summaryText: string;
   framing: FormulaFraming | null;
+  description: string | null;
 }): JSX.Element {
   const isVotes = framing === "absVotes";
   const suffix =
@@ -159,6 +166,23 @@ function FormulaValueBlock({
           {framingLabel}
         </div>
       </div>
+      {description ? (
+        <div
+          style={{
+            marginTop: 10,
+            paddingTop: 10,
+            borderTop: "1px dotted var(--hair)",
+            fontSize: 12,
+            lineHeight: 1.5,
+            opacity: 0.85,
+            whiteSpace: "pre-wrap",
+            wordBreak: "break-word",
+          }}
+          aria-label="Lisätietoja kaavasta"
+        >
+          {description}
+        </div>
+      ) : null}
     </div>
   );
 }
