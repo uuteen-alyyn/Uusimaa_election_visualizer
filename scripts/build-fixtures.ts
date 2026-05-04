@@ -295,10 +295,14 @@ async function buildFixture(
     // Round is encoded in the electionId suffix ("pres2024r1" → 1).
     const round = electionId.endsWith("r2") ? 2 : 1;
     const fixture = await buildPresidentialFixture(electionId, year, round);
-    // Pres takes a separate code path; still attach HVA aggregates so
-    // the new HVA view works for presidential elections too.
-    if (fixture.areas && hvaMapping) {
-      attachHvaAggregates(fixture.areas, electionId, hvaMapping);
+    // Pres takes a separate code path; still attach turnout + HVA
+    // aggregates so the new HVA view works for presidential
+    // elections too.
+    if (fixture.areas) {
+      await attachTurnout(fixture.areas, electionType, year, electionId);
+      if (hvaMapping) {
+        attachHvaAggregates(fixture.areas, electionId, hvaMapping);
+      }
     }
     return fixture;
   }
@@ -367,6 +371,11 @@ async function buildFixture(
     );
   }
 
+  // Attach äänestysprosentti + äänioikeutetut from PxWeb. Runs
+  // before the HVA / vp-aggregate steps so their summed-voters
+  // computations cascade up correctly.
+  await attachTurnout(areas, electionType, year, electionId);
+
   if (electionType === "regional") {
     // Aluevaalit's 2-digit fixture rows are hyvinvointialueet
     // (HV01..HV21), not vaalipiirit. Replace them with per-vp
@@ -384,6 +393,207 @@ async function buildFixture(
   }
 
   return { electionId, areas };
+}
+
+/** Fetch eligible-voter count + turnout % per area from PxWeb and
+ *  merge into the existing `areas` rows. Looks up the election's
+ *  dedicated turnout-by-aanestysalue table when available, else
+ *  falls back to the multi-measure all-areas party table. The
+ *  Tiedot codes are discovered from metadata by valueText
+ *  ("äänioikeutet…" → eligible voters, "äänestysprosent…" →
+ *  turnout %), so this works across the per-table-suffix variation
+ *  (evaa / kvaa / euvaa / pvaa / alvaa) without hard-coding.
+ *
+ *  Silent no-op when the election has no Tiedot variable carrying
+ *  these codes — older Passiivi tables and EU/regional don't all
+ *  expose them. */
+async function attachTurnout(
+  areas: RegionResult[],
+  electionType: ElectionType,
+  year: number,
+  electionId: string,
+): Promise<void> {
+  const tables = ALL_ELECTION_TABLES.find(
+    (t) => t.election_type === electionType && t.year === year,
+  );
+  if (!tables) return;
+
+  const tableId =
+    tables.turnout_by_aanestysalue ??
+    tables.party_by_aanestysalue ??
+    tables.party_by_kunta;
+  if (!tableId) {
+    console.warn(`[prefetch]   ${electionId}: no turnout-capable table → leaving turnout=0`);
+    return;
+  }
+  const dbPath = getDatabasePath(tables);
+
+  let metadata;
+  try {
+    metadata = await withRetry(
+      () => pxwebClient.getTableMetadata(dbPath, tableId),
+      `turnout-meta ${electionId}`,
+    );
+  } catch (e) {
+    console.warn(`[prefetch]   ${electionId}: turnout metadata failed: ${e}`);
+    return;
+  }
+
+  // Locate Tiedot variable + the codes for eligible voters /
+  // turnout % by valueText scan. PxWeb labels are stable Finnish
+  // strings ("Äänioikeutettuja", "Äänestysprosentti, %") across
+  // tables, so a substring match works.
+  const tiedot = metadata.variables.find(
+    (v) =>
+      v.code === "Tiedot" ||
+      v.code === "Äänestystiedot" ||
+      v.code === "Puolueiden kannatus",
+  );
+  if (!tiedot) return;
+
+  let votersCode: string | null = null;
+  let turnoutCode: string | null = null;
+  for (let i = 0; i < tiedot.values.length; i++) {
+    const c = tiedot.values[i] ?? "";
+    const text = (tiedot.valueTexts[i] ?? "").toLowerCase();
+    if (!votersCode && /äänioikeutet|aanioikeutet/.test(text)) votersCode = c;
+    if (!turnoutCode && /äänestysprosent|aanestysprosent/.test(text))
+      turnoutCode = c;
+  }
+  if (!votersCode || !turnoutCode) {
+    console.warn(
+      `[prefetch]   ${electionId}: turnout codes missing from ${tableId}`,
+    );
+    return;
+  }
+
+  // Build the query — pin gender / party / round / year to their
+  // total codes; let the area dimension fan out.
+  type FilterItem = {
+    code: string;
+    selection: { filter: "item" | "all"; values: string[] };
+  };
+  const filters: FilterItem[] = [];
+  let areaCode: string | null = null;
+  for (const v of metadata.variables) {
+    if (v.code === tiedot.code) {
+      filters.push({
+        code: v.code,
+        selection: { filter: "item", values: [votersCode, turnoutCode] },
+      });
+    } else if (v.code === "Vuosi") {
+      filters.push({
+        code: v.code,
+        selection: { filter: "item", values: [String(year)] },
+      });
+    } else if (
+      v.code === "Sukupuoli" ||
+      v.code === "Ehdokkaan sukupuoli"
+    ) {
+      const total = v.values.includes("SSS")
+        ? "SSS"
+        : v.values.includes("S")
+          ? "S"
+          : v.values[0]!;
+      filters.push({ code: v.code, selection: { filter: "item", values: [total] } });
+    } else if (v.code === "Puolue") {
+      const total = v.values.includes("SSS")
+        ? "SSS"
+        : v.values.includes("00")
+          ? "00"
+          : v.values[0]!;
+      filters.push({ code: v.code, selection: { filter: "item", values: [total] } });
+    } else if (v.code === "Kierros") {
+      // Round 1 by default. Pres r2 is a separate fixture; its
+      // electionId carries `r2`, so use that to pick the round.
+      const round = electionId.endsWith("r2") ? "2" : "1";
+      filters.push({ code: v.code, selection: { filter: "item", values: [round] } });
+    } else {
+      // Anything else: assume it's the area variable (the loaders
+      // call it "Alue", "Vaalipiiri ja kunta vaalivuonna",
+      // "Alue/Äänestysalue", "Äänestysalue", …). Keep the first
+      // such variable as our area dimension.
+      if (areaCode == null) areaCode = v.code;
+      filters.push({ code: v.code, selection: { filter: "all", values: ["*"] } });
+    }
+  }
+  if (!areaCode) {
+    console.warn(
+      `[prefetch]   ${electionId}: couldn't identify area variable on ${tableId}`,
+    );
+    return;
+  }
+
+  let response;
+  try {
+    response = await withRetry(
+      () =>
+        pxwebClient.queryTable(dbPath, tableId, {
+          query: filters,
+          response: { format: "json" as const },
+        }),
+      `turnout-query ${electionId}`,
+    );
+  } catch (e) {
+    console.warn(`[prefetch]   ${electionId}: turnout query failed: ${e}`);
+    return;
+  }
+
+  // PxWeb json layout: when Tiedot is filtered to multiple values,
+  // each value becomes its own measure column (type "c"). The
+  // remaining columns are key dimensions (type "d" / "t"). Each
+  // data row is { key: [keyVals…], values: [measureVals…] }.
+  const cols = response.columns;
+  const keyColumns = cols.filter((c) => c.type !== "c");
+  const measureColumns = cols.filter((c) => c.type === "c");
+  const areaKeyIdx = keyColumns.findIndex((c) => c.code === areaCode);
+  const votersMeasureIdx = measureColumns.findIndex((c) => c.code === votersCode);
+  const turnoutMeasureIdx = measureColumns.findIndex(
+    (c) => c.code === turnoutCode,
+  );
+  if (areaKeyIdx < 0 || votersMeasureIdx < 0 || turnoutMeasureIdx < 0) {
+    console.warn(
+      `[prefetch]   ${electionId}: turnout response shape unexpected (areaIdx=${areaKeyIdx} v=${votersMeasureIdx} t=${turnoutMeasureIdx})`,
+    );
+    return;
+  }
+
+  const byRegionId = new Map<string, { voters: number; turnout: number }>();
+  for (const row of response.data) {
+    const areaRaw = row.key[areaKeyIdx];
+    if (!areaRaw) continue;
+    const votersRaw = row.values[votersMeasureIdx];
+    const turnoutRaw = row.values[turnoutMeasureIdx];
+    const voters = votersRaw === undefined ? NaN : parseFloat(votersRaw);
+    const turnout = turnoutRaw === undefined ? NaN : parseFloat(turnoutRaw);
+    if (!Number.isFinite(voters) && !Number.isFinite(turnout)) continue;
+    const entry = {
+      voters: Number.isFinite(voters) ? voters : 0,
+      turnout: Number.isFinite(turnout) ? turnout : 0,
+    };
+    // Index by both the canonical id (matches the existing rows
+    // for vp / kunta) and the raw id (matches AA rows where the
+    // build script keeps the full PxWeb code as the regionId).
+    byRegionId.set(canonicalizeAreaId(areaRaw), entry);
+    byRegionId.set(areaRaw, entry);
+  }
+
+  let merged = 0;
+  for (const a of areas) {
+    let found = byRegionId.get(a.regionId);
+    // HVA rows use `hv<NN>` ids — try the bare 2-digit variant in
+    // case the source table uses HV-prefixed codes.
+    if (!found && a.regionId.startsWith("hv")) {
+      found = byRegionId.get(a.regionId.slice(2));
+    }
+    if (!found) continue;
+    a.voters = Math.round(found.voters);
+    a.turnout = found.turnout;
+    merged++;
+  }
+  console.log(
+    `[prefetch]   ${electionId}: turnout merged into ${merged}/${areas.length} regions`,
+  );
 }
 
 /** Direct query that always passes a Vuosi filter, regardless of
@@ -1692,13 +1902,18 @@ async function rewriteAlueVpAggregates(areas: RegionResult[], electionId: string
     if (arr) arr.push(a);
     else byVp.set(vp, [a]);
   }
-  // Build per-vp aggregate row: sum votes, weight shares by votes.
+  // Build per-vp aggregate row: sum votes + voters, weight shares
+  // by votes. Voters / turnout cascade from the kunta rows that
+  // attachTurnout populated; the per-vp turnout is recomputed from
+  // the summed totals so the value is internally consistent.
   const vpRows: RegionResult[] = [];
   for (const [vpCode, rows] of byVp.entries()) {
     let totalVotes = 0;
+    let totalVoters = 0;
     const partyVotes = new Map<string, number>();
     for (const r of rows) {
       totalVotes += r.votes;
+      totalVoters += r.voters;
       for (const [party, share] of Object.entries(r.shares)) {
         if (share == null) continue;
         const w = (r.votes * share) / 100;
@@ -1714,8 +1929,8 @@ async function rewriteAlueVpAggregates(areas: RegionResult[], electionId: string
       regionId: vpCode,
       electionId,
       votes: totalVotes,
-      voters: 0,
-      turnout: 0,
+      voters: totalVoters,
+      turnout: totalVoters > 0 ? (totalVotes / totalVoters) * 100 : 0,
       shares,
     });
   }
