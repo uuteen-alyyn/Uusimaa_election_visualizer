@@ -856,6 +856,7 @@ async function buildPres2024Fixture(
     const areas: RegionResult[] = [];
     for (const [areaCode, recs] of byArea.entries()) {
       const partyVotes = new Map<string, number>();
+      const candList: Candidate[] = [];
       let totalVotes = 0;
       for (const rec of recs) {
         const name = candidateNames.get(rec.cand) ?? rec.cand;
@@ -863,6 +864,12 @@ async function buildPres2024Fixture(
         const slug = pres2024NameToParty(name);
         partyVotes.set(slug, (partyVotes.get(slug) ?? 0) + rec.votes);
         totalVotes += rec.votes;
+        candList.push({
+          id: rec.cand,
+          name,
+          party: slug,
+          votes: rec.votes,
+        });
       }
       if (totalVotes === 0) continue;
 
@@ -870,14 +877,17 @@ async function buildPres2024Fixture(
       for (const [party, votes] of partyVotes.entries()) {
         shares[party] = (votes / totalVotes) * 100;
       }
-      areas.push({
+      candList.sort((a, b) => b.votes - a.votes);
+      const result: RegionResult = {
         regionId: canonicalizeAreaId(areaCode),
         electionId,
         votes: totalVotes,
         voters: 0,
         turnout: 0,
         shares,
-      });
+      };
+      if (candList.length > 0) result.candidates = candList;
+      areas.push(result);
     }
     // Second pass — aa rows. 14d5 has the aa Alue codes (~1750 nationwide)
     // but querying them all in one shot would be ~19 000 cells — over
@@ -952,6 +962,7 @@ async function buildPres2024Fixture(
       }
       for (const [aaCode, recs] of aaByArea.entries()) {
         const partyVotes = new Map<string, number>();
+        const candList: Candidate[] = [];
         let totalVotes = 0;
         for (const rec of recs) {
           const name = candidateNames.get(rec.cand) ?? rec.cand;
@@ -959,12 +970,19 @@ async function buildPres2024Fixture(
           const slug = pres2024NameToParty(name);
           partyVotes.set(slug, (partyVotes.get(slug) ?? 0) + rec.votes);
           totalVotes += rec.votes;
+          candList.push({
+            id: rec.cand,
+            name,
+            party: slug,
+            votes: rec.votes,
+          });
         }
         if (totalVotes === 0) continue;
         const shares: Record<string, number> = {};
         for (const [party, votes] of partyVotes.entries()) {
           shares[party] = (votes / totalVotes) * 100;
         }
+        candList.sort((a, b) => b.votes - a.votes);
         const result: RegionResult = {
           regionId: aaCode,
           electionId,
@@ -973,6 +991,7 @@ async function buildPres2024Fixture(
           turnout: 0,
           shares,
         };
+        if (candList.length > 0) result.candidates = candList;
         const parentKunta = parseParentKunta(aaCode);
         if (parentKunta) result.parentKunta = parentKunta;
         const label = areaTexts.get(aaCode);
@@ -1001,6 +1020,19 @@ async function buildPresidentialFixture(
     return buildPres2024Fixture(electionId, round);
   }
   try {
+    // Fetch metadata once so we can attach human-readable candidate
+    // names to the fixture (composer and Ledger render them as-is).
+    const meta = await withRetry(
+      () =>
+        pxwebClient.getTableMetadata("StatFin/pvaa", "statfin_pvaa_pxt_14db"),
+      `pres meta ${electionId}`,
+    );
+    const ehdVar = meta.variables.find((v) => v.code === "Ehdokkaat");
+    const candNames = new Map<string, string>();
+    ehdVar?.values.forEach((code, i) => {
+      candNames.set(code, ehdVar.valueTexts[i] ?? code);
+    });
+
     const resp = await withRetry(
       () =>
         pxwebClient.queryTable(
@@ -1052,6 +1084,7 @@ async function buildPresidentialFixture(
     const areas: RegionResult[] = [];
     for (const [vpId, recs] of byVp.entries()) {
       const partyVotes = new Map<string, number>();
+      const candByKey = new Map<string, Candidate>();
       let totalVotes = 0;
       for (const rec of recs) {
         const slug =
@@ -1059,6 +1092,20 @@ async function buildPresidentialFixture(
           `_cand${rec.candidateId}`;
         partyVotes.set(slug, (partyVotes.get(slug) ?? 0) + rec.votes);
         totalVotes += rec.votes;
+        // Pre-2013 vp boundary remap means multiple old vp rows can
+        // collapse to one canonical vp; sum candidate votes across
+        // those rows so a candidate appears once per canonical vp.
+        const existing = candByKey.get(rec.candidateId);
+        if (existing) {
+          existing.votes += rec.votes;
+        } else {
+          candByKey.set(rec.candidateId, {
+            id: rec.candidateId,
+            name: candNames.get(rec.candidateId) ?? rec.candidateId,
+            party: slug,
+            votes: rec.votes,
+          });
+        }
       }
       if (totalVotes === 0) continue;
 
@@ -1066,14 +1113,19 @@ async function buildPresidentialFixture(
       for (const [party, votes] of partyVotes.entries()) {
         shares[party] = (votes / totalVotes) * 100;
       }
-      areas.push({
+      const candList = Array.from(candByKey.values()).sort(
+        (a, b) => b.votes - a.votes,
+      );
+      const result: RegionResult = {
         regionId: vpId,
         electionId,
         votes: totalVotes,
         voters: 0,
         turnout: 0,
         shares,
-      });
+      };
+      if (candList.length > 0) result.candidates = candList;
+      areas.push(result);
     }
 
     if (areas.length === 0) {
