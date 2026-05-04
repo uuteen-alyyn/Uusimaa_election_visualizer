@@ -23,7 +23,8 @@ import { HierarchyMap, type DisplayLevel } from "./components/HierarchyMap";
 import { Ledger, type LedgerLevelLabel } from "./components/Ledger";
 import { PartyPicker } from "./components/PartyPicker";
 import { ShareLinkPill } from "./components/ShareLinkPill";
-import { WorkflowBar } from "./components/WorkflowBar";
+import { LisaasetuksetButton } from "./components/LisaasetuksetButton";
+import { MittariDropdown } from "./components/MittariDropdown";
 import { WorkflowBuilder } from "./components/WorkflowBuilder";
 
 import {
@@ -1261,22 +1262,8 @@ export function App(): JSX.Element {
         aria-label="Tarkastelutyyli ja parametrit"
         style={{ display: "flex", flexDirection: "column", gap: 8 }}
       >
-        <WorkflowBar
-          builtins={BUILTIN_WORKFLOWS}
-          customs={customWorkflows}
-          activeWorkflow={activeWorkflow}
-          onApply={applyWorkflow}
-          onOpenBuilder={() => {
-            setEditingWorkflow(null);
-            setBuilderOpen(true);
-          }}
-          onEdit={(w) => {
-            setEditingWorkflow(w);
-            setBuilderOpen(true);
-          }}
-          onDelete={deleteWorkflow}
-        />
-
+        {/* Single controls row — Vaali, Mittari, per-mode controls,
+            optional Skaala, plus the Lisäasetukset escape hatch. */}
         <div
           style={{
             display: "flex",
@@ -1287,65 +1274,59 @@ export function App(): JSX.Element {
             fontSize: 13,
           }}
         >
-          {mode === "formula" && activeSelectors.length > 0 ? (
-            <SelectorBindingRow
-              selectors={activeSelectors}
-              bindings={formulaBindings}
-              setBindings={setFormulaBindings}
-              labels={appliedSelectorLabels}
-              electionsWithData={electionsWithData}
-              loadCandidates={(id) => source.listCandidates(id)}
-            />
-          ) : null}
+          <ParamLabel>Vaali</ParamLabel>
+          <ElectionPicker
+            value={election}
+            onChange={setElection}
+            hasData={electionsWithData}
+            ariaLabel="Vaali"
+          />
 
-          {mode === "formula" ? (
+          <span
+            style={{ width: 1, height: 22, background: "var(--hair)", margin: "0 4px" }}
+          />
+
+          <ParamLabel>Mittari</ParamLabel>
+          <MittariDropdown
+            builtins={BUILTIN_WORKFLOWS}
+            customs={customWorkflows}
+            activeWorkflow={activeWorkflow}
+            onApply={applyWorkflow}
+            onOpenBuilder={() => {
+              setEditingWorkflow(null);
+              setBuilderOpen(true);
+            }}
+            onEdit={(w) => {
+              setEditingWorkflow(w);
+              setBuilderOpen(true);
+            }}
+            onDelete={deleteWorkflow}
+          />
+
+          {/* Per-mode inline controls. Only the most-frequently-
+              changed knobs surface here; lower-frequency settings
+              (HVA toggle, Ahvenanmaa exclusion) live in
+              Lisäasetukset. */}
+          {WF_KIND_BY_ID[mode].needsParty ? (
             <>
-              {activeSelectors.length > 0 ? (
-                <span
-                  style={{ width: 1, height: 22, background: "var(--hair)", margin: "0 4px" }}
-                />
-              ) : null}
-              <ParamLabel>Skaalaus</ParamLabel>
-              <FramingTabs value={framing} onChange={setFraming} />
               <span
                 style={{ width: 1, height: 22, background: "var(--hair)", margin: "0 4px" }}
               />
-              <label
-                style={{
-                  display: "inline-flex",
-                  alignItems: "center",
-                  gap: 6,
-                  fontSize: 12,
-                  cursor: "pointer",
-                }}
-                title="Ahvenanmaalla ei ole ääniä mantereen puolueille — sen mukaan ottaminen romahduttaa väriliukuman muille alueille."
-              >
-                <input
-                  type="checkbox"
-                  checked={excludeAhvenanmaa}
-                  onChange={(e) => {
-                    const next = e.target.checked;
-                    setExcludeAhvenanmaa(next);
-                    // Persist on the active custom workflow so the
-                    // setting survives a reload / re-apply.
-                    if (appliedWorkflowId) {
-                      setCustomWorkflows((prev) =>
-                        prev.map((w) =>
-                          w.id === appliedWorkflowId
-                            ? { ...w, excludeAhvenanmaa: next }
-                            : w,
-                        ),
-                      );
-                    }
-                  }}
-                  style={{ accentColor: "var(--ink)" }}
-                />
-                <span>Älä huomioi Ahvenanmaata</span>
-              </label>
+              <ParamLabel>Puolue</ParamLabel>
+              <PartyPicker
+                value={focusParty}
+                onChange={setFocusParty}
+                allowAll={mode === "votes"}
+              />
             </>
-          ) : mode === "change" ? (
+          ) : null}
+
+          {mode === "change" ? (
             <>
-              <ParamLabel>Vertaa</ParamLabel>
+              <span
+                style={{ width: 1, height: 22, background: "var(--hair)", margin: "0 4px" }}
+              />
+              <ParamLabel>Vertailu</ParamLabel>
               <ElectionPicker
                 value={refElection}
                 onChange={setRefElection}
@@ -1353,50 +1334,23 @@ export function App(): JSX.Element {
                 hasData={electionsWithData}
                 ariaLabel="Vertailuvuosi"
               />
-              <span style={{ opacity: 0.5, fontSize: 16 }}>→</span>
-              <ParamLabel>nykyiseen</ParamLabel>
-              <ElectionPicker
-                value={election}
-                onChange={setElection}
-                exclude={new Set([refElection])}
-                hasData={electionsWithData}
-                ariaLabel="Nykyinen vaali"
-              />
-              <span style={{ width: 1, height: 22, background: "var(--hair)", margin: "0 4px" }} />
-              <ParamLabel>Tarkasteltava puolue</ParamLabel>
-              <PartyPicker value={focusParty} onChange={setFocusParty} />
             </>
-          ) : (
+          ) : null}
+
+          {mode === "formula" ? (
             <>
-              <ParamLabel>Vaali</ParamLabel>
-              <ElectionPicker
-                value={election}
-                onChange={setElection}
-                hasData={electionsWithData}
-                ariaLabel="Vaali"
+              <span
+                style={{ width: 1, height: 22, background: "var(--hair)", margin: "0 4px" }}
               />
-              {WF_KIND_BY_ID[mode].needsParty ? (
-                <>
-                  <span
-                    style={{ width: 1, height: 22, background: "var(--hair)", margin: "0 4px" }}
-                  />
-                  <ParamLabel>Puolue</ParamLabel>
-                  <PartyPicker
-                    value={focusParty}
-                    onChange={setFocusParty}
-                    allowAll={mode === "votes"}
-                  />
-                </>
-              ) : null}
+              <ParamLabel>Skaala</ParamLabel>
+              <FramingTabs value={framing} onChange={setFraming} />
             </>
-          )}
-          {/* Push the Kunta / HVA toggle to the far right of the
-              parameter row so it stays visually separated from the
-              per-mode controls but doesn't sit on top of the map. */}
+          ) : null}
+
           <span style={{ marginLeft: "auto" }} />
-          <HvaToggle
-            value={viewMode}
-            onChange={(next) => {
+          <LisaasetuksetButton
+            viewMode={viewMode}
+            onViewModeChange={(next) => {
               setViewMode(next);
               if (next === "kunta" && level === "hva" && parentSlug) {
                 setLevel("kunta");
@@ -1417,16 +1371,52 @@ export function App(): JSX.Element {
                 }
               }
             }}
-            visible={level !== "aa"}
-            disabledReason={(() => {
+            hvaDisabledReason={(() => {
               if (!parentSlug) return null;
               if (parentSlug === "hel" || parentSlug === "ahve") {
                 return "Helsinki ja Ahvenanmaa: ei hyvinvointialueita";
               }
               return null;
             })()}
+            showAhvenanmaaToggle={mode === "formula"}
+            excludeAhvenanmaa={excludeAhvenanmaa}
+            onExcludeAhvenanmaaChange={(next) => {
+              setExcludeAhvenanmaa(next);
+              if (appliedWorkflowId) {
+                setCustomWorkflows((prev) =>
+                  prev.map((w) =>
+                    w.id === appliedWorkflowId
+                      ? { ...w, excludeAhvenanmaa: next }
+                      : w,
+                  ),
+                );
+              }
+            }}
           />
         </div>
+
+        {/* Second row: selector bindings, only when a custom formula
+            has selectors. Stays out of the way otherwise. */}
+        {mode === "formula" && activeSelectors.length > 0 ? (
+          <div
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: 10,
+              flexWrap: "wrap",
+              fontSize: 13,
+            }}
+          >
+            <SelectorBindingRow
+              selectors={activeSelectors}
+              bindings={formulaBindings}
+              setBindings={setFormulaBindings}
+              labels={appliedSelectorLabels}
+              electionsWithData={electionsWithData}
+              loadCandidates={(id) => source.listCandidates(id)}
+            />
+          </div>
+        ) : null}
       </section>
 
 
@@ -2176,57 +2166,6 @@ function BindingRow({
       {sub ? (
         <span style={{ fontSize: 10, opacity: 0.55 }}>{sub}</span>
       ) : null}
-    </div>
-  );
-}
-
-/* ─── Kunta / HVA toggle ─────────────────────────────────── */
-
-function HvaToggle({
-  value,
-  onChange,
-  visible,
-  disabledReason,
-}: {
-  value: "kunta" | "hva";
-  onChange: (next: "kunta" | "hva") => void;
-  visible: boolean;
-  disabledReason: string | null;
-}): JSX.Element | null {
-  if (!visible) return null;
-  const disabled = disabledReason !== null;
-  return (
-    <div
-      style={{
-        display: "inline-flex",
-        gap: 4,
-        background: "var(--paper)",
-        border: "var(--border-default) solid var(--line)",
-        borderRadius: "var(--radius-pill)",
-        padding: 3,
-        boxShadow: "var(--shadow-soft)",
-        opacity: disabled ? 0.5 : 1,
-        verticalAlign: "middle",
-      }}
-      title={disabledReason ?? "Vaihda kartan ryhmittelytaso"}
-    >
-      {(["kunta", "hva"] as const).map((m) => (
-        <span
-          key={m}
-          className={"pill " + (value === m ? "on" : "")}
-          onClick={() => !disabled && onChange(m)}
-          role="button"
-          tabIndex={0}
-          aria-pressed={value === m}
-          style={{
-            cursor: disabled ? "not-allowed" : "pointer",
-            fontSize: 11,
-            padding: "2px 10px",
-          }}
-        >
-          {m === "kunta" ? "Kunta" : "Hyvinvointialue"}
-        </span>
-      ))}
     </div>
   );
 }
