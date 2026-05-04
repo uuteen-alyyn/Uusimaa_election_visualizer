@@ -11,7 +11,6 @@
  * separate menu.
  */
 
-import { workflowsEquivalent } from "../lib/workflow";
 import type { Workflow } from "../types/elections";
 
 interface MittariDropdownProps {
@@ -35,16 +34,17 @@ export function MittariDropdown({
   onEdit,
   onDelete,
 }: MittariDropdownProps): JSX.Element {
-  // Match the active workflow against builtins / customs by
-  // equivalence so the dropdown highlights the right entry even
-  // when the user has tweaked sub-controls (party, ref election)
-  // off the canonical built-in defaults.
-  const activeId =
-    customs.find((w) => workflowsEquivalent(w, activeWorkflow))?.id ??
-    builtins.find((w) => workflowsEquivalent(w, activeWorkflow))?.id ??
-    "";
+  // Pick the dropdown's selected entry. Custom workflow when the
+  // active state's id matches a saved one; otherwise the built-in
+  // for the active *mode* — so changing election or party doesn't
+  // make the dropdown forget which mittari is in use.
+  const customMatch =
+    customs.find((w) => w.id === activeWorkflow.id) ?? null;
+  const builtinMatch =
+    builtins.find((w) => w.kind === activeWorkflow.kind) ?? null;
+  const activeId = customMatch?.id ?? builtinMatch?.id ?? "";
 
-  const activeCustom = customs.find((w) => w.id === activeId) ?? null;
+  const activeCustom = customMatch;
 
   const handleChange = (e: React.ChangeEvent<HTMLSelectElement>): void => {
     const v = e.target.value;
@@ -72,9 +72,19 @@ export function MittariDropdown({
           fontSize: 13,
           cursor: "pointer",
           boxShadow: "var(--shadow-soft)",
-          minWidth: 180,
+          /* Keep the dropdown narrow enough that Vaali + Mittari
+             share a single row in the left column on a 1366-wide
+             laptop. minWidth 0 lets the select shrink below its
+             content width if the column is tight; the user can
+             still read the full label in the open dropdown. */
+          minWidth: 0,
+          maxWidth: "100%",
         }}
       >
+        {/* Hidden empty option keeps the trigger visually blank when
+            there's no match yet (e.g. an unsaved formula in mid-
+            construction) instead of falsely showing "Suurin puolue". */}
+        <option value="" disabled hidden></option>
         <optgroup label="Perus">
           {builtins.map((w) => (
             <option key={w.id} value={w.id}>

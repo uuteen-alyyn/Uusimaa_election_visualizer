@@ -1231,41 +1231,43 @@ export function App(): JSX.Element {
           <h1>Vaalit — tulosvisualisointi</h1>
           <Crumb steps={crumbSteps} />
 
+          {/* Vaali + Mittari share a single wrapping row so they fit
+              side by side in the left column on a 1366-wide laptop.
+              flexWrap means narrower columns gracefully drop Mittari
+              to a second line instead of overflowing. */}
           <div
             style={{
               display: "flex",
-              flexDirection: "column",
-              gap: 6,
+              alignItems: "center",
+              gap: 12,
+              rowGap: 6,
+              flexWrap: "wrap",
               fontSize: 13,
             }}
           >
-            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-              <ParamLabel>Vaali</ParamLabel>
-              <ElectionPicker
-                value={election}
-                onChange={setElection}
-                hasData={electionsWithData}
-                ariaLabel="Vaali"
-              />
-            </div>
-            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-              <ParamLabel>Mittari</ParamLabel>
-              <MittariDropdown
-                builtins={BUILTIN_WORKFLOWS}
-                customs={customWorkflows}
-                activeWorkflow={activeWorkflow}
-                onApply={applyWorkflow}
-                onOpenBuilder={() => {
-                  setEditingWorkflow(null);
-                  setBuilderOpen(true);
-                }}
-                onEdit={(w) => {
-                  setEditingWorkflow(w);
-                  setBuilderOpen(true);
-                }}
-                onDelete={deleteWorkflow}
-              />
-            </div>
+            <ParamLabel>Vaali</ParamLabel>
+            <ElectionPicker
+              value={election}
+              onChange={setElection}
+              hasData={electionsWithData}
+              ariaLabel="Vaali"
+            />
+            <ParamLabel>Mittari</ParamLabel>
+            <MittariDropdown
+              builtins={BUILTIN_WORKFLOWS}
+              customs={customWorkflows}
+              activeWorkflow={activeWorkflow}
+              onApply={applyWorkflow}
+              onOpenBuilder={() => {
+                setEditingWorkflow(null);
+                setBuilderOpen(true);
+              }}
+              onEdit={(w) => {
+                setEditingWorkflow(w);
+                setBuilderOpen(true);
+              }}
+              onDelete={deleteWorkflow}
+            />
           </div>
 
           <Ledger
