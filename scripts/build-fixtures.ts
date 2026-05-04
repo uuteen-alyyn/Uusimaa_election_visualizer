@@ -879,6 +879,108 @@ async function buildPres2024Fixture(
         shares,
       });
     }
+    // Second pass — aa rows. 14d5 has the aa Alue codes (~1750 nationwide)
+    // but querying them all in one shot would be ~19 000 cells — over
+    // PxWeb's ~12 000 limit. Group by vp prefix and fetch per-vp instead;
+    // largest vp (Uusimaa, 313 aa) is ~3 400 cells.
+    const aaCodes = areaVar.values.filter(
+      (c) => c !== "SSS" && !c.startsWith("VP") && !/^\d{3}$/.test(c),
+    );
+    const aaByVp = new Map<string, string[]>();
+    for (const code of aaCodes) {
+      const vp = code.slice(0, 2);
+      const arr = aaByVp.get(vp);
+      if (arr) arr.push(code);
+      else aaByVp.set(vp, [code]);
+    }
+    const areaTexts = new Map<string, string>();
+    areaVar.values.forEach((code, i) => {
+      areaTexts.set(code, areaVar.valueTexts[i] ?? code);
+    });
+
+    for (const [vpPrefix, codes] of aaByVp.entries()) {
+      let aaResp;
+      try {
+        aaResp = await withRetry(
+          () =>
+            pxwebClient.queryTable(dbPath, tableId, {
+              query: [
+                {
+                  code: "Vuosi",
+                  selection: { filter: "item", values: ["2024"] },
+                },
+                { code: "Alue", selection: { filter: "item", values: codes } },
+                {
+                  code: "Ehdokas",
+                  selection: { filter: "all", values: ["*"] },
+                },
+                {
+                  code: "Kierros",
+                  selection: { filter: "item", values: [String(round)] },
+                },
+                {
+                  code: "Tiedot",
+                  selection: { filter: "item", values: ["pvaa_aanet"] },
+                },
+              ],
+              response: { format: "json" as const },
+            }),
+          `pres2024 ${electionId} aa vp${vpPrefix}`,
+        );
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : String(e);
+        console.warn(
+          `[prefetch]   ${electionId}: aa vp${vpPrefix} skipped (${msg})`,
+        );
+        continue;
+      }
+
+      const aaRows: Row[] = [];
+      for (const r of aaResp.data) {
+        const area = String(r.key[1] ?? "");
+        const cand = String(r.key[2] ?? "");
+        const v = Number(r.values[0]);
+        if (!Number.isFinite(v) || v <= 0) continue;
+        if (cand === "00") continue;
+        aaRows.push({ area, cand, votes: v });
+      }
+      const aaByArea = new Map<string, Row[]>();
+      for (const r of aaRows) {
+        const arr = aaByArea.get(r.area);
+        if (arr) arr.push(r);
+        else aaByArea.set(r.area, [r]);
+      }
+      for (const [aaCode, recs] of aaByArea.entries()) {
+        const partyVotes = new Map<string, number>();
+        let totalVotes = 0;
+        for (const rec of recs) {
+          const name = candidateNames.get(rec.cand) ?? rec.cand;
+          if (isAggregateName(name)) continue;
+          const slug = pres2024NameToParty(name);
+          partyVotes.set(slug, (partyVotes.get(slug) ?? 0) + rec.votes);
+          totalVotes += rec.votes;
+        }
+        if (totalVotes === 0) continue;
+        const shares: Record<string, number> = {};
+        for (const [party, votes] of partyVotes.entries()) {
+          shares[party] = (votes / totalVotes) * 100;
+        }
+        const result: RegionResult = {
+          regionId: aaCode,
+          electionId,
+          votes: totalVotes,
+          voters: 0,
+          turnout: 0,
+          shares,
+        };
+        const parentKunta = parseParentKunta(aaCode);
+        if (parentKunta) result.parentKunta = parentKunta;
+        const label = areaTexts.get(aaCode);
+        if (label) result.label = label;
+        areas.push(result);
+      }
+    }
+
     if (areas.length === 0) return { electionId, status: "no_data" };
     return { electionId, areas };
   } catch (e) {
