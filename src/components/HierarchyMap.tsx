@@ -59,14 +59,19 @@ export interface HierarchyMapProps {
 const VP_VIEWBOX = COUNTRY_VIEWBOX; // "60 30 300 610"
 const KUNTA_VIEWBOX = "0 0 400 400" as const;
 
-/** Per-vp label nudge for the country view. The polygon centroid
- *  is the natural label anchor everywhere except Uusimaa, whose
- *  centroid sits directly on top of the (much smaller) Helsinki vp
- *  polygon — so by default "Uusimaa" hides Helsinki. Pull it
- *  northward to expose Helsinki visually. */
+/** Per-vp label nudge for the country view. Uusimaa's polygon
+ *  centroid sits directly on top of the much smaller Helsinki vp
+ *  polygon — pull "Uusimaa" up-and-right into Uusimaa proper so
+ *  it doesn't crowd the Helsinki callout's leader line. */
 const VP_LABEL_OFFSET: Readonly<Record<string, { dx: number; dy: number }>> = {
-  uus: { dx: 0, dy: -16 },
+  uus: { dx: 14, dy: -24 },
 };
+
+/** Vp ids whose polygon label is suppressed at country view. The
+ *  Helsinki polygon is so small the inline "Helsinki" text just
+ *  overlaps Uusimaa's label; the right-side callout square already
+ *  carries the name, so we drop the polygon label here. */
+const VP_HIDE_POLYGON_LABEL: ReadonlySet<string> = new Set(["01"]);
 
 function labelOffsetFor(
   level: DisplayLevel,
@@ -361,6 +366,17 @@ export function HierarchyMap({
         : null}
 
       {regions.map((r) => {
+        // Suppress the inline polygon label for vps whose name is
+        // already carried by an external callout (Helsinki) so the
+        // map doesn't double up. Selection / hover still labels.
+        if (
+          level === "vp" &&
+          VP_HIDE_POLYGON_LABEL.has(r.id) &&
+          selected !== r.id &&
+          hoverId !== r.id
+        ) {
+          return null;
+        }
         const show = labelable.has(r.id) || selected === r.id || hoverId === r.id;
         if (!show) return null;
         const isSel = selected === r.id;
