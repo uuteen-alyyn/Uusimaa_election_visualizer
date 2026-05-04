@@ -12,6 +12,11 @@ body {
   background: var(--page-bg);
   color: var(--ink);
   font-family: var(--font-body);
+  /* Pin the viewport so the page chrome + map + ledger fit
+     without scrolling on common desktop / laptop sizes
+     (1366×768 to 1920×1080). */
+  height: 100%;
+  overflow: hidden;
 }
 
 /* Visible focus ring on keyboard navigation only — leaves mouse
@@ -50,58 +55,101 @@ select:focus-visible {
 }
 
 .page {
-  min-height: 100vh;
+  /* Strict viewport height with a flex-column inside so the
+     dashboard cell fills whatever space the chrome leaves. */
+  height: 100vh;
   display: flex;
   flex-direction: column;
-  padding: 32px;
-  gap: 24px;
+  padding: 18px 28px;
+  gap: 12px;
+  /* Belt-and-braces against children that try to grow past the
+     viewport (long ledger, popovers, etc). */
+  overflow: hidden;
 }
 
+.page header {
+  flex: 0 0 auto;
+}
 .page header h1 {
   font-family: var(--font-display);
   font-weight: 700;
-  font-size: 36px;
-  margin: 0 0 8px;
+  font-size: 28px;
+  margin: 0 0 4px;
+  line-height: 1.05;
 }
 
 .page header .subtitle {
-  font-size: 14px;
-  opacity: 0.7;
+  font-size: 13px;
+  opacity: 0.75;
   margin: 0;
 }
 
 .page footer {
-  margin-top: auto;
-  padding-top: 24px;
+  flex: 0 0 auto;
+  margin-top: 4px;
+  padding-top: 10px;
   border-top: 1px solid var(--hair);
   font-size: 11px;
-  opacity: 0.6;
+  opacity: 0.7;
 }
 
-/* Dashboard layout — map left, ledger right. Switches to a stacked
-   column on narrow viewports so nothing gets squashed (mobile is
-   formally out of scope, but a soft fallback is still polite). */
+/* Dashboard layout — map left, ledger right. Stretches to fill
+   the remaining vertical space; ledger scrolls internally if its
+   content is longer than the viewport allows. */
 .dashboard {
+  flex: 1 1 auto;
   display: grid;
-  grid-template-columns: 1fr 380px;
-  gap: 24px;
-  align-items: start;
-  min-height: 640px;
+  grid-template-columns: minmax(0, 1fr) 360px;
+  gap: 20px;
+  align-items: stretch;
+  /* `min-height: 0` lets the grid shrink inside the flex column
+     so children's overflow rules apply. */
+  min-height: 0;
 }
 
 .dashboard-map {
   display: flex;
   justify-content: center;
-  align-items: flex-start;
+  align-items: stretch;
   min-width: 0;
+  min-height: 0;
 }
 
 .dashboard-ledger {
   min-width: 0;
+  min-height: 0;
+  /* Ledger gets its own scroll axis when it overflows the cell —
+     party-share bars + the candidates list can stack tall. */
+  overflow-y: auto;
 }
 
+/* Slightly larger viewports — let the type breathe. */
+@media (min-height: 900px) {
+  .page {
+    padding: 24px 32px;
+    gap: 16px;
+  }
+  .page header h1 {
+    font-size: 32px;
+  }
+}
+
+/* Stacked fallback for narrow / mobile-ish screens. Mobile is out
+   of scope but the soft fallback keeps the app usable. */
 @media (max-width: 960px) {
+  html,
+  body {
+    overflow: auto;
+    height: auto;
+  }
+  .page {
+    height: auto;
+    overflow: visible;
+  }
   .dashboard {
     grid-template-columns: 1fr;
+  }
+  .dashboard-ledger {
+    overflow-y: visible;
   }
 }

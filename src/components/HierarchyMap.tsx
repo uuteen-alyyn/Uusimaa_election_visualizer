@@ -50,9 +50,6 @@ export interface HierarchyMapProps {
    *  (and screen-reader `aria-label`) on hover. Defaults to the
    *  region's display label when omitted. */
   getTooltip?: (regionId: string, label: string) => string;
-  /** SVG width / height in pixels. */
-  width?: number;
-  height?: number;
   /** Single-click on a region. */
   onPick?: (regionId: string) => void;
   /** Double-click on a region — drill in. */
@@ -88,8 +85,6 @@ export function HierarchyMap({
   selected,
   getFill,
   getTooltip,
-  width = 480,
-  height = 600,
   onPick,
   onZoomIn,
 }: HierarchyMapProps): JSX.Element {
@@ -220,9 +215,17 @@ export function HierarchyMap({
     <svg
       ref={svgRef}
       viewBox={viewBox}
-      width={width}
-      height={height}
-      style={{ display: "block" }}
+      preserveAspectRatio="xMidYMid meet"
+      style={{
+        // Responsive sizing — the SVG fills its container, viewBox
+        // + preserveAspectRatio handle the math. Caller (.dashboard-
+        // map) decides how big the cell is so the layout adapts to
+        // the viewport without per-screen pixel tuning.
+        display: "block",
+        width: "100%",
+        height: "100%",
+        maxHeight: "100%",
+      }}
       tabIndex={0}
       role="application"
       aria-label={ariaLabel}

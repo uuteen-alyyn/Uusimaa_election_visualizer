@@ -1412,8 +1412,6 @@ export function App(): JSX.Element {
                 getTooltip={getTooltip}
                 onPick={onPick}
                 onZoomIn={onZoomIn}
-                width={520}
-                height={640}
               />
               {/* Kunta / Hyvinvointialue toggle, top-right of map. */}
               <HvaToggle
