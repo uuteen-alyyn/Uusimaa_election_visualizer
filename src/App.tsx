@@ -1224,9 +1224,37 @@ export function App(): JSX.Element {
       <a href="#map-area" className="skip-link">
         Siirry karttaan
       </a>
-      <header>
-        <h1>Vaalit — tulosvisualisointi</h1>
-        <Crumb steps={crumbSteps} />
+      <header
+        style={{
+          display: "flex",
+          alignItems: "flex-start",
+          justifyContent: "space-between",
+          gap: 16,
+          flexWrap: "wrap",
+        }}
+      >
+        <div style={{ minWidth: 0, flex: "1 1 auto" }}>
+          <h1>Vaalit — tulosvisualisointi</h1>
+          <Crumb steps={crumbSteps} />
+        </div>
+        <div
+          style={{
+            display: "flex",
+            gap: 6,
+            alignItems: "center",
+            flexWrap: "wrap",
+            flex: "0 0 auto",
+          }}
+        >
+          <ShareLinkPill onToast={setToast} />
+          <DownloadMenu
+            onMapSvg={exportSvg}
+            onMapPng={exportPng}
+            onDashboardPng={exportDashboard}
+            disabled={dataLoading}
+          />
+          <HelpBox />
+        </div>
       </header>
 
       <section
@@ -1365,24 +1393,6 @@ export function App(): JSX.Element {
         </div>
       </section>
 
-      <div
-        style={{
-          display: "flex",
-          gap: 6,
-          alignItems: "center",
-          flexWrap: "wrap",
-        }}
-      >
-        <ShareLinkPill onToast={setToast} />
-        <DownloadMenu
-          onMapSvg={exportSvg}
-          onMapPng={exportPng}
-          onDashboardPng={exportDashboard}
-          disabled={dataLoading}
-        />
-      </div>
-
-      <HelpBox />
 
       <main className="dashboard" id="map-area">
         <div
@@ -1457,37 +1467,35 @@ export function App(): JSX.Element {
                   return null;
                 })()}
               />
-              <div
-                style={{
-                  position: "absolute",
-                  left: 12,
-                  bottom: 12,
-                  pointerEvents: "auto",
-                }}
-              >
-                <DynamicLegend
-                  mode={mode}
-                  focusParty={focusParty}
-                  winnerParties={winnerPartiesInView}
-                  hasNoData={hasNoDataInView}
-                  supportRange={supportRange}
-                  changeRange={changeRange}
-                  votesRange={votesRange}
-                  formulaRange={formulaRange}
-                  formulaSummary={
-                    mode === "formula" && resolvedFormula.length > 0
-                      ? formulaSummary(resolvedFormula)
-                      : null
-                  }
-                  framing={mode === "formula" ? framing : null}
-                  electionLabel={electionLabel}
-                  refElectionLabel={mode === "change" ? refLabel : undefined}
-                />
-              </div>
             </div>
           )}
         </div>
         <div className="dashboard-ledger">
+          {/* Legend moved here from the map overlay so it doesn't
+              cover southern Finland (Helsinki + Uusimaa was hidden
+              by it in winner mode). Sits at the top of the ledger
+              column where it visually pairs with "what the colors
+              mean" right next to the data. */}
+          <div style={{ marginBottom: 10 }}>
+            <DynamicLegend
+              mode={mode}
+              focusParty={focusParty}
+              winnerParties={winnerPartiesInView}
+              hasNoData={hasNoDataInView}
+              supportRange={supportRange}
+              changeRange={changeRange}
+              votesRange={votesRange}
+              formulaRange={formulaRange}
+              formulaSummary={
+                mode === "formula" && resolvedFormula.length > 0
+                  ? formulaSummary(resolvedFormula)
+                  : null
+              }
+              framing={mode === "formula" ? framing : null}
+              electionLabel={electionLabel}
+              refElectionLabel={mode === "change" ? refLabel : undefined}
+            />
+          </div>
           <Ledger
             result={ledger.result}
             label={ledger.label}
