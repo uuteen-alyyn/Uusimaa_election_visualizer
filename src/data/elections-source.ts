@@ -162,7 +162,11 @@ export class LocalFixtureSource implements ElectionDataSource {
     if (list.length === 0) {
       list = mergeFrom((a) => /^\d{3}$/.test(a.regionId));
     }
-    list = list.slice(0, 200);
+    // No cap — the binding picker filters by name and only renders
+    // ~25 results at a time, and the data already lives in memory
+    // from the fixture load. Capping would silently hide candidates
+    // who fell outside the top-N nationally (the user's complaint:
+    // "in search candidate I cannot find all of the candidates").
     this.candidateCache.set(electionId, list);
     return list;
   }

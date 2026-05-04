@@ -377,6 +377,35 @@ export function resolveFormulaTokens(
   });
 }
 
+/** Resolve the election type (e.g. "ek", "pres") for every chip that
+ *  references the given `selYear` selector. Uses concrete `fields.type`
+ *  when set, falls back to the binding of `fields.selType` otherwise.
+ *  Returns the unique type when every referencing chip agrees, or
+ *  `null` when there's no resolvable type / multiple distinct types.
+ *
+ *  Used by the runtime year-binding picker so the dropdown can be
+ *  scoped to compatible elections (e.g. when $B = ek and $C is the
+ *  year selector for `$C $B …` chips, $C's year list shows only ek
+ *  years). */
+export function resolveYearSelectorType(
+  name: string,
+  tokens: FormulaToken[],
+  bindings: Record<string, Binding>,
+): import("../types/elections").ElectionTypeId | null {
+  const types = new Set<string>();
+  for (const t of tokens) {
+    if (t.kind !== "chip") continue;
+    const f = t.fields;
+    if (f.selYear !== name) continue;
+    let type = f.type;
+    if (!type && f.selType) type = bindings[f.selType]?.type;
+    if (type) types.add(type);
+  }
+  if (types.size === 1)
+    return types.values().next().value as import("../types/elections").ElectionTypeId;
+  return null;
+}
+
 /** Resolve the election id (e.g. "ek2023", "pres2024r1") for every
  *  chip in `tokens` that references the given `selWho` selector.
  *  Returns the unique election id when every referencing chip resolves

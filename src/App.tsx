@@ -55,6 +55,7 @@ import {
   listSelectors,
   resolveFormulaTokens,
   resolveWhoSelectorElection,
+  resolveYearSelectorType,
   type ResultLookup,
 } from "./lib/formula";
 import {
@@ -1010,18 +1011,28 @@ export function App(): JSX.Element {
 
   const electionLabel = ELECTION_BY_ID[election]?.shortLabel ?? election;
   const refLabel = ELECTION_BY_ID[refElection]?.shortLabel ?? refElection;
-  // For each selector, compute the chip-context election id when it's
-  // a `who` slot — so the binding picker can offer that election's
-  // candidates as alternatives to the 8 parties.
+  // For each selector, compute runtime context so the binding pickers
+  // can be scoped:
+  //   - year slot  → typeHint resolved via sibling $type bindings, so
+  //                  the year dropdown filters to compatible elections
+  //   - who slot   → resolved election id, used to fetch candidates
   const activeSelectors = useMemo(
     () =>
-      listSelectors(formulaTokens).map((s) => ({
-        ...s,
-        resolvedElectionId:
-          s.slot === "who"
-            ? resolveWhoSelectorElection(s.name, formulaTokens, formulaBindings)
-            : null,
-      })),
+      listSelectors(formulaTokens).map((s) => {
+        const resolvedTypeHint =
+          s.slot === "year"
+            ? resolveYearSelectorType(s.name, formulaTokens, formulaBindings) ??
+              s.typeHint
+            : s.typeHint;
+        return {
+          ...s,
+          typeHint: resolvedTypeHint,
+          resolvedElectionId:
+            s.slot === "who"
+              ? resolveWhoSelectorElection(s.name, formulaTokens, formulaBindings)
+              : null,
+        };
+      }),
     [formulaTokens, formulaBindings],
   );
 
