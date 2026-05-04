@@ -121,10 +121,15 @@ export class LocalFixtureSource implements ElectionDataSource {
       return fixture.areas.filter((a) => /^\d{3}$/.test(a.regionId));
     }
     if (level === "aa") {
-      // Drilling into a kunta — return only that kunta's äänestysalueet.
-      return fixture.areas.filter(
-        (a) => a.parentKunta != null && a.parentKunta === parentId,
-      );
+      // `parentId === null` returns every aa row in the fixture —
+      // the formula evaluator preloads AA across whichever
+      // elections the formula chips reference, then the per-region
+      // lookup resolves each id locally.
+      if (parentId == null) {
+        return fixture.areas.filter((a) => a.parentKunta != null);
+      }
+      // Drilling into a kunta — only that kunta's äänestysalueet.
+      return fixture.areas.filter((a) => a.parentKunta === parentId);
     }
     if (level === "hva") {
       // HVA rows live under `hv<NN>` regionIds. When `parentId` is a

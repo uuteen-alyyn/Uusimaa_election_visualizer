@@ -196,17 +196,19 @@ function useFormulaResults(
       const result = new Map<ElectionId, Map<string, RegionResult>>();
       await Promise.all(
         electionIds.map(async (eid) => {
-          // Include HVA rows so formula evaluation works when the
-          // map is drilled into HVA view — without this, every
-          // `hv\d{2}` region id resolves to null and the formula
-          // ramp collapses across the visible HVAs.
-          const [vp, kunta, hva] = await Promise.all([
+          // Include hva + aa rows so formula evaluation works at
+          // every drill-down level. Without aa, formulas comparing
+          // two elections at äänestysalue level resolve to null
+          // for every AA id and the user sees "Ei tuloksia"
+          // across the whole map.
+          const [vp, kunta, hva, aa] = await Promise.all([
             source.listAreas("vp", null, eid),
             source.listAreas("kunta", null, eid),
             source.listAreas("hva", null, eid),
+            source.listAreas("aa", null, eid),
           ]);
           const m = new Map<string, RegionResult>();
-          for (const r of [...vp, ...kunta, ...hva]) m.set(r.regionId, r);
+          for (const r of [...vp, ...kunta, ...hva, ...aa]) m.set(r.regionId, r);
           result.set(eid, m);
         }),
       );
