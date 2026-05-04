@@ -372,13 +372,15 @@ export function buildSuggestions(
           id: `cand-${c.id}`,
           kind: "candidate",
           label: c.name,
-          sub: `candidate · ${partyAbbr}`,
+          sub: `ehdokas · ${partyAbbr}`,
           action: "setField",
           field: "who",
           value: { candidate: { id: c.id, name: c.name, party: c.party } },
-          // Empty-query: rank candidates below parties so the party
-          // shortcuts stay first; but matching queries score normally.
-          score: q === "" ? 20 : s,
+          // Empty-query: parties get score 1, candidates get 0.5,
+          // so parties land first in the dropdown. Real query matches
+          // (positive `s`) override this and let candidates outrank
+          // parties when the user is typing a name.
+          score: q === "" ? 0.5 : s,
         });
       }
     }

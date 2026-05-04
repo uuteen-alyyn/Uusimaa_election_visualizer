@@ -86,11 +86,20 @@ export function FormulaComposer({
     };
   }, [activeElectionId, loadCandidatesForElection]);
 
-  const suggestions = useMemo(
-    () =>
-      buildSuggestions(value, activeField, activeChip, selectors, candidates),
-    [value, activeField, activeChip, selectors, candidates],
-  );
+  const suggestions = useMemo(() => {
+    // Bigger cap when both party + candidate options exist at the
+    // "who" slot, so the user can see they're alternatives.
+    const cap =
+      activeField === "who" && candidates.length > 0 ? 18 : 8;
+    return buildSuggestions(
+      value,
+      activeField,
+      activeChip,
+      selectors,
+      candidates,
+      cap,
+    );
+  }, [value, activeField, activeChip, selectors, candidates]);
 
   const focusInput = (): void => {
     inputRef.current?.focus();
@@ -311,7 +320,25 @@ export function FormulaComposer({
               overflowY: "auto",
             }}
           >
-            {suggestions.map((s, i) => (
+            {suggestions.map((s, i) => {
+              // Insert a section divider when the suggestion kind
+              // changes from "party" to "candidate" at the who slot,
+              // so the user sees the two paths are alternatives.
+              const prev = i > 0 ? suggestions[i - 1] : null;
+              const showCandidateHeader =
+                activeField === "who" &&
+                s.kind === "candidate" &&
+                (!prev || prev.kind !== "candidate");
+              const showPartyHeader =
+                activeField === "who" &&
+                s.kind === "party" &&
+                (!prev || (prev.kind !== "party" && prev.kind !== "selector"));
+              return (
+              <div key={`row-${s.id}`}>
+                {showPartyHeader ? <SectionHeader>Puolueet</SectionHeader> : null}
+                {showCandidateHeader ? (
+                  <SectionHeader>Ehdokkaat (vaihtoehtoinen — valitse joko puolue tai ehdokas)</SectionHeader>
+                ) : null}
               <div
                 key={s.id}
                 onMouseDown={(e) => {
@@ -375,7 +402,9 @@ export function FormulaComposer({
                   </span>
                 ) : null}
               </div>
-            ))}
+              </div>
+            );
+            })}
           </div>
         ) : null}
       </div>
@@ -511,6 +540,28 @@ function ChipPill({
         </span>
       ) : null}
     </span>
+  );
+}
+
+/** Group divider shown above the first party row and (when
+ *  candidates are also offered) above the first candidate row,
+ *  so the suggestion list visually conveys "pick one or the other". */
+function SectionHeader({ children }: { children: React.ReactNode }): JSX.Element {
+  return (
+    <div
+      style={{
+        fontSize: 10,
+        opacity: 0.55,
+        textTransform: "uppercase",
+        letterSpacing: 0.5,
+        padding: "6px 10px 2px",
+        borderTop: "1px dotted var(--hair)",
+        background: "var(--paper-2)",
+        fontStyle: "italic",
+      }}
+    >
+      {children}
+    </div>
   );
 }
 

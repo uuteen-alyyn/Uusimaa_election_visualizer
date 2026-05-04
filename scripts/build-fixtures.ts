@@ -25,7 +25,7 @@
  * candidate lists are deferred to follow-up phases (see BACKLOG.md).
  */
 
-import { copyFile, mkdir, writeFile } from "node:fs/promises";
+import { copyFile, mkdir, readFile, writeFile } from "node:fs/promises";
 import { resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -358,6 +358,14 @@ async function buildFixture(
     console.log(
       `[prefetch]   ${electionId}: eu candidates → ${withCands} vp regions`,
     );
+  }
+
+  if (electionType === "regional") {
+    // Aluevaalit's 2-digit fixture rows are hyvinvointialueet
+    // (HV01..HV21), not vaalipiirit. Replace them with per-vp
+    // aggregates synthesised from the kunta-level rows so the App's
+    // vp-level coloring (geometry vp codes 01..13) matches the data.
+    await rewriteAlueVpAggregates(areas, electionId);
   }
 
   return { electionId, areas };
@@ -1247,6 +1255,94 @@ async function buildPresidentialFixture(
   }
 }
 
+
+/* ─── Alue: per-vp aggregation from kunta rows ──────────────── */
+
+/** Loads the vp-slug → vp-code mapping and the kunta-code → vp-code
+ *  mapping from the geometry files. The aluevaalit fixture's 2-digit
+ *  codes are hyvinvointialueet (HV01..HV21), not vaalipiirit, so the
+ *  App's "regionId='02' → Uusimaa" lookup gets HV02 = Keski-Uusimaa
+ *  data and renders Uusimaa vp colored by Keski-Uusimaa results. The
+ *  fix: synthesise per-vp aggregate rows from the kunta-level data
+ *  using the geometry's vp grouping, and overwrite the broken
+ *  2-digit rows. */
+let geometryMaps: {
+  /** vp slug ("hel", "uus", …) → vp 2-digit code ("01", "02", …). */
+  vpSlugToCode: Map<string, string>;
+  /** kunta 3-digit code → vp 2-digit code. */
+  kuntaToVp: Map<string, string>;
+} | null = null;
+
+async function loadGeometryMaps(): Promise<typeof geometryMaps> {
+  if (geometryMaps) return geometryMaps;
+  const vps = JSON.parse(
+    await readFile(resolve(REPO_ROOT, "data/fi-vaalipiirit.json"), "utf8"),
+  ) as { features: Array<{ id: string; code: string }> };
+  const kuntat = JSON.parse(
+    await readFile(resolve(REPO_ROOT, "data/fi-kunnat.json"), "utf8"),
+  ) as { features: Array<{ id: string; vp: string }> };
+  const vpSlugToCode = new Map<string, string>();
+  for (const f of vps.features) vpSlugToCode.set(f.id, f.code);
+  const kuntaToVp = new Map<string, string>();
+  for (const k of kuntat.features) {
+    const vpCode = vpSlugToCode.get(k.vp);
+    if (vpCode) kuntaToVp.set(k.id, vpCode);
+  }
+  geometryMaps = { vpSlugToCode, kuntaToVp };
+  return geometryMaps;
+}
+
+/** Replace an alue fixture's 2-digit rows (which are hyvinvointialue
+ *  aggregates, not vaalipiiri) with per-vp aggregates synthesised
+ *  from the kunta-level rows. */
+async function rewriteAlueVpAggregates(areas: RegionResult[], electionId: string): Promise<void> {
+  const maps = await loadGeometryMaps();
+  if (!maps) return;
+  const { kuntaToVp } = maps;
+  // Group kunta rows by their vp code.
+  const byVp = new Map<string, RegionResult[]>();
+  for (const a of areas) {
+    if (!/^\d{3}$/.test(a.regionId)) continue;
+    const vp = kuntaToVp.get(a.regionId);
+    if (!vp) continue;
+    const arr = byVp.get(vp);
+    if (arr) arr.push(a);
+    else byVp.set(vp, [a]);
+  }
+  // Build per-vp aggregate row: sum votes, weight shares by votes.
+  const vpRows: RegionResult[] = [];
+  for (const [vpCode, rows] of byVp.entries()) {
+    let totalVotes = 0;
+    const partyVotes = new Map<string, number>();
+    for (const r of rows) {
+      totalVotes += r.votes;
+      for (const [party, share] of Object.entries(r.shares)) {
+        if (share == null) continue;
+        const w = (r.votes * share) / 100;
+        partyVotes.set(party, (partyVotes.get(party) ?? 0) + w);
+      }
+    }
+    if (totalVotes === 0) continue;
+    const shares: Record<string, number> = {};
+    for (const [party, v] of partyVotes.entries()) {
+      shares[party] = (v / totalVotes) * 100;
+    }
+    vpRows.push({
+      regionId: vpCode,
+      electionId,
+      votes: totalVotes,
+      voters: 0,
+      turnout: 0,
+      shares,
+    });
+  }
+  // Drop existing 2-digit rows (hv aggregates) and append vp aggregates.
+  for (let i = areas.length - 1; i >= 0; i--) {
+    const reg = areas[i]!.regionId;
+    if (/^\d{2}$/.test(reg)) areas.splice(i, 1);
+  }
+  areas.push(...vpRows);
+}
 
 /* ─── Main ──────────────────────────────────────────────────── */
 
