@@ -1124,6 +1124,175 @@ async function buildPres2024Fixture(
   }
 }
 
+/** Add per-kunta share rows to an older-pres fixture by reading the
+ *  archive `km_ku_*` "vaalikartta" tables. They give per-candidate
+ *  vote-share percentages plus a turnout % per kunta — no raw vote
+ *  counts (so the per-kunta `votes` field stays at 0; the "Äänimäärä"
+ *  workflow will read 0 for those kuntat). Winner / support % /
+ *  Kannatuksen muutos still work, which is what the user asked for. */
+async function attachOlderPresKuntaRows(
+  areas: RegionResult[],
+  electionId: string,
+  year: number,
+  round: 1 | 2,
+): Promise<void> {
+  const tableId =
+    year === 2018 ? "km_ku_2018" : year === 2012 ? "km_ku_fi" : null;
+  if (!tableId) return;
+  const dbPath = "StatFin_Passiivi/pvaa";
+
+  let meta;
+  try {
+    meta = await withRetry(
+      () => pxwebClient.getTableMetadata(dbPath, tableId),
+      `older pres meta ${electionId}`,
+    );
+  } catch (e) {
+    console.warn(
+      `[prefetch]   ${electionId}: km_ku meta failed (${(e as Error).message})`,
+    );
+    return;
+  }
+
+  const areaVar = meta.variables.find(
+    (v) => v.code === "Kunta" || v.code === "Alue",
+  );
+  const measureVar = meta.variables.find(
+    (v) => v.code === "Lukumäärätiedot" || v.code === "Tiedot",
+  );
+  if (!areaVar || !measureVar) return;
+
+  // The 2012 table holds both rounds in one table. Round-1 share
+  // columns are `Pro_NN`; round-2 columns get an `X` prefix.
+  // The "kannatusmuutos" columns embed the party (`/KOK`, `/VIHR`)
+  // — and they only appear for round 1 even on the 2012 table —
+  // so we always read party from the un-prefixed `Muutos_NN`,
+  // regardless of which round's shares we're collecting.
+  const sharePrefix = round === 2 ? "Xpro_" : "Pro_";
+
+  interface CandSlot {
+    col: string;
+    name: string;
+    party: string;
+  }
+  const slots = new Map<string, CandSlot>();
+  for (let i = 0; i < measureVar.values.length; i++) {
+    const code = measureVar.values[i]!;
+    const text = measureVar.valueTexts[i] ?? "";
+    if (code.startsWith(sharePrefix)) {
+      const num = code.slice(sharePrefix.length);
+      const nameMatch = /^(.+?)n\s+kannatus/.exec(text);
+      const name = nameMatch ? nameMatch[1] ?? num : num;
+      const cleanName = name.replace(/n$/, "");
+      const existing = slots.get(num);
+      slots.set(num, {
+        col: code,
+        name: cleanName,
+        party: existing?.party ?? "_unknown",
+      });
+    } else if (code.startsWith("Muutos_")) {
+      // Always read /PARTY from round-1 Muutos labels — they're the
+      // only ones that carry it.
+      const num = code.slice("Muutos_".length);
+      const partyMatch = /\/([A-ZÄÖa-zäö]+)\s+kannatusmuutos/i.exec(text);
+      if (partyMatch) {
+        const slug = partyKey(partyMatch[1], partyMatch[1]) ?? `_${partyMatch[1].toLowerCase()}`;
+        const existing = slots.get(num);
+        slots.set(num, {
+          col: existing?.col ?? "",
+          name: existing?.name ?? num,
+          party: slug,
+        });
+      }
+    }
+  }
+  // Drop slots that don't have a share column (e.g. Muutos-only).
+  for (const [num, s] of slots.entries()) {
+    if (!s.col) slots.delete(num);
+  }
+  if (slots.size === 0) return;
+
+  let resp;
+  try {
+    resp = await withRetry(
+      () =>
+        pxwebClient.queryTable(dbPath, tableId, {
+          query: [
+            { code: areaVar.code, selection: { filter: "all", values: ["*"] } },
+            {
+              code: measureVar.code,
+              selection: {
+                filter: "item",
+                values: Array.from(slots.values()).map((s) => s.col),
+              },
+            },
+          ],
+          response: { format: "json" as const },
+        }),
+      `older pres query ${electionId}`,
+    );
+  } catch (e) {
+    console.warn(
+      `[prefetch]   ${electionId}: km_ku query failed (${(e as Error).message})`,
+    );
+    return;
+  }
+
+  // Each row's key is [Alue, Lukumäärätiedot]; values[0] = the share %
+  // (or "..." / null when the kunta didn't participate in r2 etc.).
+  const sharesByKunta = new Map<string, Record<string, number>>();
+  const candListByKunta = new Map<string, Candidate[]>();
+  const orderedSlotEntries = Array.from(slots.entries()); // [candNum, slot]
+  for (const r of resp.data) {
+    const area = String(r.key[0] ?? "");
+    const measureCode = String(r.key[1] ?? "");
+    if (area === "SSS") continue;
+    if (!/^\d{3}$/.test(area)) continue;
+    const slotEntry = orderedSlotEntries.find(([, s]) => s.col === measureCode);
+    if (!slotEntry) continue;
+    const [candNum, slot] = slotEntry;
+    const raw = r.values[0];
+    if (raw == null || raw === "..." || raw === ".") continue;
+    const v = Number(raw);
+    if (!Number.isFinite(v) || v <= 0) continue;
+    const sh = sharesByKunta.get(area) ?? {};
+    sh[slot.party] = (sh[slot.party] ?? 0) + v;
+    sharesByKunta.set(area, sh);
+    const cl = candListByKunta.get(area) ?? [];
+    cl.push({
+      id: `${year}_${round}_${candNum}`,
+      name: slot.name,
+      party: slot.party,
+      // The km_ku table only has shares — store the share-percent in
+      // `votes` as a stand-in so the candidate list at least sorts
+      // correctly. Real vote counts would need a second fetch.
+      votes: Math.round(v * 100),
+    });
+    candListByKunta.set(area, cl);
+  }
+
+  for (const [area, shares] of sharesByKunta.entries()) {
+    const cands = (candListByKunta.get(area) ?? []).sort(
+      (a, b) => b.votes - a.votes,
+    );
+    const result: RegionResult = {
+      regionId: area,
+      electionId,
+      // No raw vote counts in km_ku — leave votes=0; voters/turnout
+      // could be backfilled from the äänestystiedot table later.
+      votes: 0,
+      voters: 0,
+      turnout: 0,
+      shares,
+    };
+    if (cands.length > 0) result.candidates = cands;
+    areas.push(result);
+  }
+  console.log(
+    `[prefetch]   ${electionId}: older-pres kunta rows → ${sharesByKunta.size}`,
+  );
+}
+
 async function buildPresidentialFixture(
   electionId: string,
   year: number,
@@ -1247,6 +1416,10 @@ async function buildPresidentialFixture(
       console.warn(`[prefetch]   ${electionId}: 0 areas after aggregation → status:no_data`);
       return { electionId, status: "no_data" };
     }
+    // Append per-kunta rows from the archive vaalikartta tables so
+    // older pres elections aren't 100 % crosshatch when the user
+    // drills into a vaalipiiri.
+    await attachOlderPresKuntaRows(areas, electionId, year, round);
     return { electionId, areas };
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
