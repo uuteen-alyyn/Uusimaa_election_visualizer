@@ -241,8 +241,10 @@ export function FormulaComposer({
     <div style={{ marginBottom: 14 }}>
       <div
         style={{
-          fontSize: 10,
-          opacity: 0.6,
+          fontSize: 11,
+          color: "var(--ink)",
+          opacity: 0.85,
+          fontWeight: 600,
           textTransform: "uppercase",
           letterSpacing: 0.5,
           marginBottom: 6,
@@ -255,11 +257,12 @@ export function FormulaComposer({
         <span>Kaava</span>
         <span
           style={{
-            opacity: 0.7,
+            opacity: 0.85,
             textTransform: "none",
             letterSpacing: 0,
-            fontSize: 11,
+            fontSize: 12,
             fontStyle: "italic",
+            fontWeight: 400,
           }}
         >
           {activeChip ? (
@@ -394,8 +397,9 @@ export function FormulaComposer({
                   </span>
                   <span
                     style={{
-                      fontSize: 10,
-                      opacity: 0.55,
+                      fontSize: 11,
+                      color: "var(--ink)",
+                      opacity: 0.7,
                       lineHeight: 1.2,
                       whiteSpace: "nowrap",
                       overflow: "hidden",
@@ -425,10 +429,19 @@ export function FormulaComposer({
       </div>
 
       <div style={{ display: "flex", gap: 8, marginTop: 8, alignItems: "center" }}>
-        <span style={{ fontSize: 11, opacity: 0.55 }}>
+        <span
+          style={{ fontSize: 11.5, color: "var(--ink)", opacity: 0.8 }}
+        >
           {tokens.length} {tokens.length === 1 ? "elementti" : "elementtiä"}
         </span>
-        <span style={{ fontSize: 11, opacity: 0.5, marginLeft: "auto" }}>
+        <span
+          style={{
+            fontSize: 11.5,
+            color: "var(--ink)",
+            opacity: 0.75,
+            marginLeft: "auto",
+          }}
+        >
           ↵ valitse · ↑↓ navigoi · ⌫ poista viimeinen kenttä · ✕ poista chip
         </span>
       </div>

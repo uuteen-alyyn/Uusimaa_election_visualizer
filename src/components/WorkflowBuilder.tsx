@@ -171,14 +171,29 @@ export function WorkflowBuilder({
             >
               {isEdit ? "Muokkaa kaavaa" : "Mukautettu kaava"}
             </div>
-            <div style={{ fontSize: 12, opacity: 0.6, marginTop: 2 }}>
+            <div
+              style={{
+                fontSize: 12.5,
+                color: "var(--ink)",
+                opacity: 0.8,
+                marginTop: 4,
+                lineHeight: 1.4,
+              }}
+            >
               Rakenna alueittainen arvo puolueosuuksista, kannatuksen
               muutoksista ja äänestysprosenteista.
             </div>
           </div>
           <span
             onClick={onClose}
-            style={{ cursor: "pointer", opacity: 0.55, fontSize: 16 }}
+            style={{
+              cursor: "pointer",
+              opacity: 0.75,
+              fontSize: 18,
+              color: "var(--ink)",
+              padding: "2px 8px",
+              lineHeight: 1,
+            }}
             role="button"
             aria-label="Sulje"
           >
@@ -204,7 +219,15 @@ export function WorkflowBuilder({
               boxSizing: "border-box",
             }}
           />
-          <div style={{ fontSize: 10, opacity: 0.55, marginTop: 4, fontStyle: "italic" }}>
+          <div
+            style={{
+              fontSize: 11,
+              color: "var(--ink)",
+              opacity: 0.75,
+              marginTop: 4,
+              fontStyle: "italic",
+            }}
+          >
             Tyhjä → nimi muodostetaan kaavasta automaattisesti.
           </div>
         </div>
@@ -242,7 +265,15 @@ export function WorkflowBuilder({
               boxSizing: "border-box",
             }}
           />
-          <div style={{ fontSize: 10, opacity: 0.55, marginTop: 4, fontStyle: "italic" }}>
+          <div
+            style={{
+              fontSize: 11,
+              color: "var(--ink)",
+              opacity: 0.75,
+              marginTop: 4,
+              fontStyle: "italic",
+            }}
+          >
             Valinnainen — näkyy Ledger-paneelissa kaavan arvon vieressä.
           </div>
         </div>
@@ -267,7 +298,16 @@ export function WorkflowBuilder({
             />
             <span>Älä huomioi Ahvenanmaata</span>
           </label>
-          <div style={{ fontSize: 10, opacity: 0.55, marginTop: 4, fontStyle: "italic" }}>
+          <div
+            style={{
+              fontSize: 11,
+              color: "var(--ink)",
+              opacity: 0.75,
+              marginTop: 4,
+              fontStyle: "italic",
+              lineHeight: 1.4,
+            }}
+          >
             Ahvenanmaalla ei ole ääniä mantereen puolueille — sen
             mukaan ottaminen romahduttaa väriliukuman muille alueille.
             Suositus: pidä päällä.
@@ -306,7 +346,14 @@ export function WorkflowBuilder({
                   >
                     ${s.name}
                   </span>
-                  <span style={{ fontSize: 11, opacity: 0.6, width: 110 }}>
+                  <span
+                    style={{
+                      fontSize: 12,
+                      color: "var(--ink)",
+                      opacity: 0.85,
+                      width: 110,
+                    }}
+                  >
                     {s.slot === "selType"
                       ? "vaalin tyyppi"
                       : s.slot === "selYear"
@@ -332,7 +379,15 @@ export function WorkflowBuilder({
                 </div>
               ))}
             </div>
-            <div style={{ fontSize: 10, opacity: 0.55, marginTop: 6, fontStyle: "italic" }}>
+            <div
+              style={{
+                fontSize: 11,
+                color: "var(--ink)",
+                opacity: 0.75,
+                marginTop: 6,
+                fontStyle: "italic",
+              }}
+            >
               Nämä nimet näkyvät päänäkymän valitsinpalkissa.
             </div>
           </div>
@@ -342,13 +397,13 @@ export function WorkflowBuilder({
         <div
           style={{
             marginTop: 14,
-            fontSize: 12,
+            fontSize: 12.5,
             padding: "8px 10px",
             border: "1px dotted var(--hair)",
             borderRadius: "var(--radius-box)",
             background: syntaxError ? "rgba(196,58,58,0.08)" : "transparent",
             color: syntaxError ? "#b94a2a" : "var(--ink)",
-            opacity: syntaxError ? 1 : 0.7,
+            opacity: syntaxError ? 1 : 0.85,
             fontStyle: syntaxError ? "normal" : "italic",
           }}
           role={syntaxError ? "alert" : undefined}
@@ -453,8 +508,16 @@ function FieldLabel({
   return (
     <div
       style={{
-        fontSize: 10,
-        opacity: 0.6,
+        // Bigger + higher contrast than the surrounding labels — the
+        // light paper-2 background made the original 10 px @ 0.6
+        // opacity hard to read.
+        fontSize: 11,
+        // Direct ink color at 85 % beats opacity for dark text on
+        // a near-white background — opacity blends with the page
+        // tint and looks washed out.
+        color: "var(--ink)",
+        opacity: 0.85,
+        fontWeight: 600,
         textTransform: "uppercase",
         letterSpacing: 0.5,
         marginBottom: 6,
