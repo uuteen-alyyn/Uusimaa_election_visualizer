@@ -23,7 +23,6 @@ import { HierarchyMap, type DisplayLevel } from "./components/HierarchyMap";
 import { Ledger, type LedgerLevelLabel } from "./components/Ledger";
 import { PartyPicker } from "./components/PartyPicker";
 import { ShareLinkPill } from "./components/ShareLinkPill";
-import { LisaasetuksetButton } from "./components/LisaasetuksetButton";
 import { MittariDropdown } from "./components/MittariDropdown";
 import { WorkflowBuilder } from "./components/WorkflowBuilder";
 
@@ -283,6 +282,16 @@ export function App(): JSX.Element {
   const [loadError, setLoadError] = useState<string | null>(null);
   const electionsWithData = useElectionsWithData(source);
 
+  // Country-level top candidates per election. The vp/kunta rows from
+  // the fixture only carry candidates per their own slice; the
+  // ledger's country branch builds an aggregate result from vp rows
+  // (which doesn't include kuntavaalit candidates, since those live
+  // on kunta rows). Fetching the merged list once per election lets
+  // the candidate scroll appear at "Koko Suomi" too.
+  const [countryCandidates, setCountryCandidates] = useState<
+    Record<ElectionId, ReadonlyArray<Candidate>>
+  >({} as Record<ElectionId, ReadonlyArray<Candidate>>);
+
   // Initial state from URL hash (one-shot read on mount).
   const initial = useMemo(() => readShareStateFromHash(window.location.hash), []);
 
@@ -382,6 +391,22 @@ export function App(): JSX.Element {
     source,
     mode === "change" ? refElection : null,
   );
+
+  // Lazy-load country-level candidates the first time the user views
+  // an election. Cached per-id under `countryCandidates`.
+  useEffect(() => {
+    if (countryCandidates[election]) return;
+    let cancelled = false;
+    void source.listCandidates(election).then((list) => {
+      if (cancelled) return;
+      setCountryCandidates((prev) =>
+        prev[election] ? prev : { ...prev, [election]: list },
+      );
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [election, source, countryCandidates]);
 
   // Resolved formula (selectors → bound values) and the per-region
   // lookup that covers every election the formula references.
@@ -1152,6 +1177,16 @@ export function App(): JSX.Element {
       regionId: "__suomi",
       electionId: election,
     });
+    // Country aggregate from vp rows misses kuntavaalit candidates
+    // (they live on kunta rows only). Fall back to the
+    // already-merged country list when the aggregate didn't pick
+    // any up.
+    if (!aggregated.candidates || aggregated.candidates.length === 0) {
+      const list = countryCandidates[election];
+      if (list && list.length > 0) {
+        aggregated.candidates = list.slice(0, 90);
+      }
+    }
     return {
       result: aggregated,
       label: "Koko Suomi",
@@ -1172,6 +1207,7 @@ export function App(): JSX.Element {
     mode,
     resolvedFormula,
     formulaValueByRegion,
+    countryCandidates,
   ]);
 
   /* ─── Render ─────────────────────────────────────────────── */
@@ -1231,28 +1267,28 @@ export function App(): JSX.Element {
           <h1>Vaalit — tulosvisualisointi</h1>
           <Crumb steps={crumbSteps} />
 
-          {/* Vaali + Mittari share a single wrapping row so they fit
-              side by side in the left column on a 1366-wide laptop.
-              flexWrap means narrower columns gracefully drop Mittari
-              to a second line instead of overflowing. */}
+          {/* Vaali + Mittari share a single horizontal row by stacking
+              their tiny labels above the controls. 2-col grid keeps
+              the two dropdowns on the same line even when the left
+              third is narrow (~430 px on a 1366-wide laptop). */}
           <div
             style={{
-              display: "flex",
-              alignItems: "center",
-              gap: 12,
-              rowGap: 6,
-              flexWrap: "wrap",
+              display: "grid",
+              gridTemplateColumns: "minmax(0, 1fr) minmax(0, 1fr)",
+              columnGap: 10,
+              rowGap: 4,
               fontSize: 13,
+              alignItems: "center",
             }}
           >
             <ParamLabel>Vaali</ParamLabel>
+            <ParamLabel>Mittari</ParamLabel>
             <ElectionPicker
               value={election}
               onChange={setElection}
               hasData={electionsWithData}
               ariaLabel="Vaali"
             />
-            <ParamLabel>Mittari</ParamLabel>
             <MittariDropdown
               builtins={BUILTIN_WORKFLOWS}
               customs={customWorkflows}
@@ -1368,53 +1404,58 @@ export function App(): JSX.Element {
             </div>
           ) : null}
 
-          <div style={{ display: "flex", justifyContent: "flex-end" }}>
-            <LisaasetuksetButton
-              viewMode={viewMode}
-              onViewModeChange={(next) => {
-                setViewMode(next);
-                if (next === "kunta" && level === "hva" && parentSlug) {
-                  setLevel("kunta");
+          {/* Inline secondary toggles — previously hidden behind a
+              "Lisäasetukset" popover. Surfacing them directly removes
+              a click and keeps the right-column state visible at all
+              times. The HVA toggle is hidden where it has no meaning
+              (Helsinki / Ahvenanmaa); the Ahvenanmaa exclusion is
+              formula-mode only since that's where the empty share
+              collapses adaptive ramps. */}
+          <ExtraTogglesInline
+            viewMode={viewMode}
+            onViewModeChange={(next) => {
+              setViewMode(next);
+              if (next === "kunta" && level === "hva" && parentSlug) {
+                setLevel("kunta");
+                setSelected(null);
+              }
+              if (
+                next === "hva" &&
+                level === "kunta" &&
+                parentSlug &&
+                hvaMap
+              ) {
+                const hvaCount = Object.values(hvaMap.hvaToVp).filter(
+                  (s) => s === parentSlug,
+                ).length;
+                if (hvaCount >= 2) {
+                  setLevel("hva");
                   setSelected(null);
                 }
-                if (
-                  next === "hva" &&
-                  level === "kunta" &&
-                  parentSlug &&
-                  hvaMap
-                ) {
-                  const hvaCount = Object.values(hvaMap.hvaToVp).filter(
-                    (s) => s === parentSlug,
-                  ).length;
-                  if (hvaCount >= 2) {
-                    setLevel("hva");
-                    setSelected(null);
-                  }
-                }
-              }}
-              hvaDisabledReason={(() => {
-                if (!parentSlug) return null;
-                if (parentSlug === "hel" || parentSlug === "ahve") {
-                  return "Helsinki ja Ahvenanmaa: ei hyvinvointialueita";
-                }
-                return null;
-              })()}
-              showAhvenanmaaToggle={mode === "formula"}
-              excludeAhvenanmaa={excludeAhvenanmaa}
-              onExcludeAhvenanmaaChange={(next) => {
-                setExcludeAhvenanmaa(next);
-                if (appliedWorkflowId) {
-                  setCustomWorkflows((prev) =>
-                    prev.map((w) =>
-                      w.id === appliedWorkflowId
-                        ? { ...w, excludeAhvenanmaa: next }
-                        : w,
-                    ),
-                  );
-                }
-              }}
-            />
-          </div>
+              }
+            }}
+            hvaDisabledReason={(() => {
+              if (!parentSlug) return null;
+              if (parentSlug === "hel" || parentSlug === "ahve") {
+                return "Helsinki ja Ahvenanmaa: ei hyvinvointialueita";
+              }
+              return null;
+            })()}
+            showAhvenanmaaToggle={mode === "formula"}
+            excludeAhvenanmaa={excludeAhvenanmaa}
+            onExcludeAhvenanmaaChange={(next) => {
+              setExcludeAhvenanmaa(next);
+              if (appliedWorkflowId) {
+                setCustomWorkflows((prev) =>
+                  prev.map((w) =>
+                    w.id === appliedWorkflowId
+                      ? { ...w, excludeAhvenanmaa: next }
+                      : w,
+                  ),
+                );
+              }
+            }}
+          />
 
           {/* Legend (color-scheme explanation) — sits in the right
               column so it's visible alongside the map. */}
@@ -1633,6 +1674,92 @@ function ParamLabel({ children }: { children: React.ReactNode }): JSX.Element {
     >
       {children}
     </span>
+  );
+}
+
+/** Right-column inline secondary toggles. Replaces the old
+ *  `LisaasetuksetButton` popover with always-visible controls so the
+ *  user can flip view mode / Ahvenanmaa exclusion without an extra
+ *  click. Renders nothing when neither toggle is applicable
+ *  (e.g. Helsinki vp + non-formula mode). */
+function ExtraTogglesInline({
+  viewMode,
+  onViewModeChange,
+  hvaDisabledReason,
+  showAhvenanmaaToggle,
+  excludeAhvenanmaa,
+  onExcludeAhvenanmaaChange,
+}: {
+  viewMode: "kunta" | "hva";
+  onViewModeChange: (next: "kunta" | "hva") => void;
+  hvaDisabledReason: string | null;
+  showAhvenanmaaToggle: boolean;
+  excludeAhvenanmaa: boolean;
+  onExcludeAhvenanmaaChange: (next: boolean) => void;
+}): JSX.Element | null {
+  const hvaDisabled = hvaDisabledReason !== null;
+  if (hvaDisabled && !showAhvenanmaaToggle) return null;
+  return (
+    <div
+      style={{
+        display: "flex",
+        flexWrap: "wrap",
+        gap: 10,
+        rowGap: 6,
+        alignItems: "center",
+        fontSize: 12,
+      }}
+    >
+      {!hvaDisabled ? (
+        <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
+          <ParamLabel>Ryhmittely</ParamLabel>
+          <span
+            style={{
+              display: "inline-flex",
+              gap: 4,
+              background: "var(--paper-2)",
+              border: "var(--border-thin) solid var(--line)",
+              borderRadius: "var(--radius-pill)",
+              padding: 3,
+            }}
+          >
+            {(["kunta", "hva"] as const).map((m) => (
+              <span
+                key={m}
+                className={"pill " + (viewMode === m ? "on" : "")}
+                onClick={() => onViewModeChange(m)}
+                role="button"
+                tabIndex={0}
+                aria-pressed={viewMode === m}
+                style={{ cursor: "pointer", fontSize: 11, padding: "2px 10px" }}
+              >
+                {m === "kunta" ? "Kunta" : "HVA"}
+              </span>
+            ))}
+          </span>
+        </span>
+      ) : null}
+      {showAhvenanmaaToggle ? (
+        <label
+          style={{
+            display: "inline-flex",
+            alignItems: "center",
+            gap: 6,
+            cursor: "pointer",
+            fontSize: 12,
+          }}
+          title="Ahvenanmaalla ei ole ääniä mantereen puolueille — sen mukaan ottaminen romahduttaa väriliukuman muille alueille."
+        >
+          <input
+            type="checkbox"
+            checked={excludeAhvenanmaa}
+            onChange={(e) => onExcludeAhvenanmaaChange(e.target.checked)}
+            style={{ accentColor: "var(--ink)" }}
+          />
+          <span>Älä huomioi Ahvenanmaata</span>
+        </label>
+      ) : null}
+    </div>
   );
 }
 
