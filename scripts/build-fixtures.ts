@@ -729,11 +729,175 @@ function presVpCodeToCanonical(code: string): string | null {
  *  Savo, Etelä-Savo, etc. as separate vps), which doesn't map
  *  onto our 2026 geometry — those years return no_data and are
  *  hidden from the picker. */
+/** Match a 2024 presidential candidate's name to a canonical party
+ *  slug. The 14d5 table emits candidate names directly in
+ *  `valueTexts`, so we don't need the 14db candidate-id mapping
+ *  for this path. (14db's candidate-id space differs from 14d5's
+ *  anyway — "08" is Niinistö in 14db but Stubb in 14d5.) */
+const PRES_2024_NAME_TO_PARTY: ReadonlyArray<{ re: RegExp; slug: string }> = [
+  { re: /alexander\s+stubb/i, slug: "kok" },
+  { re: /pekka\s+haavisto/i, slug: "vihr" },
+  { re: /jussi\s+halla[- ]?aho/i, slug: "ps" },
+  { re: /olli\s+rehn/i, slug: "kesk" },
+  { re: /li\s+andersson/i, slug: "vas" },
+  { re: /jutta\s+urpilainen/i, slug: "sdp" },
+  { re: /sari\s+essayah/i, slug: "kd" },
+  { re: /mika\s+aaltola/i, slug: "_aalt" },
+  { re: /harry\s+harkimo/i, slug: "_liike" },
+  { re: /nils\s+torvalds/i, slug: "rkp" },
+];
+function pres2024NameToParty(name: string): string {
+  for (const { re, slug } of PRES_2024_NAME_TO_PARTY) {
+    if (re.test(name)) return slug;
+  }
+  // Fallback: stable derived slug — keeps unrecognised candidates
+  // distinct in `shares` rather than clobbering them all together.
+  const sanitized = name
+    .toLowerCase()
+    .replace(/[^a-zåäö]/g, "")
+    .slice(0, 12);
+  return sanitized ? `_${sanitized}` : "_unknown";
+}
+
+/** Build a 2024 presidential fixture from table 14d5
+ *  (candidate × area × year × round, all area levels).
+ *
+ *  Provides full vp + kunta coverage (drilling into a vp shows
+ *  per-kunta colors, not crosshatch). 14db is still used for
+ *  2018 / 2012 rounds because those archive years don't share
+ *  this single-table-with-everything shape. */
+async function buildPres2024Fixture(
+  electionId: string,
+  round: 1 | 2,
+): Promise<FixtureFile> {
+  try {
+    const dbPath = "StatFin/pvaa";
+    const tableId = "statfin_pvaa_pxt_14d5";
+    const metadata = await withRetry(
+      () => pxwebClient.getTableMetadata(dbPath, tableId),
+      `pres2024 meta`,
+    );
+
+    const areaVar = metadata.variables.find((v) => v.code === "Alue");
+    if (!areaVar) {
+      console.warn(`[prefetch]   ${electionId}: 14d5 has no Alue variable`);
+      return { electionId, status: "no_data" };
+    }
+    // Drop SSS (national) + aa codes; keep VP## + 3-digit kunta.
+    const wantedAreas = areaVar.values.filter(
+      (c) => c.startsWith("VP") || /^\d{3}$/.test(c),
+    );
+    if (wantedAreas.length === 0) {
+      return { electionId, status: "no_data" };
+    }
+
+    const candVar = metadata.variables.find((v) => v.code === "Ehdokas");
+    if (!candVar) {
+      return { electionId, status: "no_data" };
+    }
+    const candidateNames = new Map<string, string>();
+    candVar.values.forEach((code, i) => {
+      candidateNames.set(code, candVar.valueTexts[i] ?? code);
+    });
+
+    const resp = await withRetry(
+      () =>
+        pxwebClient.queryTable(dbPath, tableId, {
+          query: [
+            { code: "Vuosi", selection: { filter: "item", values: ["2024"] } },
+            {
+              code: "Alue",
+              selection: { filter: "item", values: wantedAreas },
+            },
+            {
+              code: "Ehdokas",
+              selection: { filter: "all", values: ["*"] },
+            },
+            {
+              code: "Kierros",
+              selection: { filter: "item", values: [String(round)] },
+            },
+            {
+              code: "Tiedot",
+              selection: { filter: "item", values: ["pvaa_aanet"] },
+            },
+          ],
+          response: { format: "json" as const },
+        }),
+      `pres2024 ${electionId}`,
+    );
+
+    // Group raw rows by area code, sum candidate votes by party slug.
+    type Row = { area: string; cand: string; votes: number };
+    const rows: Row[] = [];
+    for (const r of resp.data) {
+      const area = String(r.key[1] ?? "");
+      const cand = String(r.key[2] ?? "");
+      const v = Number(r.values[0]);
+      if (!Number.isFinite(v) || v <= 0) continue;
+      // "00" is "Hyväksytyt äänestysliput, yhteensä" — skip aggregate.
+      if (cand === "00") continue;
+      rows.push({ area, cand, votes: v });
+    }
+
+    const byArea = new Map<string, Row[]>();
+    for (const row of rows) {
+      const arr = byArea.get(row.area);
+      if (arr) arr.push(row);
+      else byArea.set(row.area, [row]);
+    }
+
+    // Skip aggregate / non-candidate rows ("Hyväksytyt äänestysliput,
+    // yhteensä", "Hylätyt äänestysliput", etc.) by name. The candidate
+    // ids vary table-to-table; matching on the Finnish name is stable.
+    const isAggregateName = (name: string): boolean =>
+      /äänestysliput|yhteensä|hyväksytyt|hylätyt/i.test(name);
+
+    const areas: RegionResult[] = [];
+    for (const [areaCode, recs] of byArea.entries()) {
+      const partyVotes = new Map<string, number>();
+      let totalVotes = 0;
+      for (const rec of recs) {
+        const name = candidateNames.get(rec.cand) ?? rec.cand;
+        if (isAggregateName(name)) continue;
+        const slug = pres2024NameToParty(name);
+        partyVotes.set(slug, (partyVotes.get(slug) ?? 0) + rec.votes);
+        totalVotes += rec.votes;
+      }
+      if (totalVotes === 0) continue;
+
+      const shares: Record<string, number> = {};
+      for (const [party, votes] of partyVotes.entries()) {
+        shares[party] = (votes / totalVotes) * 100;
+      }
+      areas.push({
+        regionId: canonicalizeAreaId(areaCode),
+        electionId,
+        votes: totalVotes,
+        voters: 0,
+        turnout: 0,
+        shares,
+      });
+    }
+    if (areas.length === 0) return { electionId, status: "no_data" };
+    return { electionId, areas };
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    console.warn(`[prefetch]   ${electionId}: ${msg} → status:no_data`);
+    return { electionId, status: "no_data" };
+  }
+}
+
 async function buildPresidentialFixture(
   electionId: string,
   year: number,
   round: 1 | 2,
 ): Promise<FixtureFile> {
+  // 2024 has the all-areas single-table 14d5 — use it for vp + kunta.
+  // 2018 / 2012 fall back to the multi-year 14db (vp-only).
+  if (year === 2024) {
+    return buildPres2024Fixture(electionId, round);
+  }
   try {
     const resp = await withRetry(
       () =>
