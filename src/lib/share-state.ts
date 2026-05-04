@@ -8,6 +8,7 @@
 
 import type {
   Binding,
+  CompareMode,
   ElectionId,
   FormulaToken,
   PartyId,
@@ -25,6 +26,9 @@ export interface ShareableState {
   focusParty: PartyId | null;
   formulaTokens?: FormulaToken[];
   formulaBindings?: Record<string, Binding>;
+  /** Change-mode comparison measure. Omitted (defaults to "pp" on
+   *  decode) for backwards-compat with older share links. */
+  compareMode?: CompareMode;
 }
 
 /** UTF-8 → base64 (matches prototype's `btoa(unescape(encodeURIComponent(s)))`). */

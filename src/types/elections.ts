@@ -171,6 +171,20 @@ export interface Binding {
   who?: ChipWho;
 }
 
+/** Change-mode comparison measure.
+ *
+ *  - `pp`    — percentage-point change in vote share (current minus
+ *              ref): the natural unit for "did they gain or lose
+ *              support?". Default.
+ *  - `votes` — absolute vote-count delta (current party votes minus
+ *              ref party votes). Reads as "how many more / fewer
+ *              actual ballots did they get this time?".
+ *  - `pct`   — relative percentage change of party votes:
+ *              `(now − then) / then × 100`. "+15 %" means 15% more
+ *              votes than last time, regardless of the absolute
+ *              size. Skipped where `then === 0`. */
+export type CompareMode = "pp" | "votes" | "pct";
+
 /** Formula framing — how chip metrics are computed and how the
  *  resulting per-region values are rescaled for display.
  *

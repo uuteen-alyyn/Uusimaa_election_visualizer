@@ -33,7 +33,7 @@ import {
   PARTY_BY_ID,
   ELECTION_TYPES,
 } from "./data/catalog";
-import { pickWinner, pointChange, votesValue } from "./lib/color-ramps";
+import { changeValue, pickWinner, votesValue } from "./lib/color-ramps";
 import {
   LocalFixtureSource,
   type KuntaHvaMap,
@@ -82,6 +82,7 @@ import type {
   Binding,
   Candidate,
   ChipWho,
+  CompareMode,
   ElectionId,
   ElectionTypeId,
   FormulaFraming,
@@ -355,6 +356,12 @@ export function App(): JSX.Element {
    *  with `excludeAhvenanmaa` set, and editable via the runtime
    *  toggle in formula mode. */
   const [excludeAhvenanmaa, setExcludeAhvenanmaa] = useState<boolean>(true);
+  /** Change-mode comparison measure. Default "pp" (percentage-point
+   *  change in share). The picker in the change-mode controls flips
+   *  between this, total-vote delta, and relative %-change. */
+  const [compareMode, setCompareMode] = useState<CompareMode>(
+    initial?.compareMode ?? "pp",
+  );
   /** kunta → HVA mapping loaded once from /data/kunta-hva.json. Null
    *  while the fetch is in-flight or if the file is missing (older
    *  deploy). */
@@ -428,6 +435,7 @@ export function App(): JSX.Element {
       election,
       refElection,
       focusParty,
+      ...(mode === "change" ? { compareMode } : {}),
       ...(mode === "formula"
         ? { formulaTokens, formulaBindings }
         : {}),
@@ -440,7 +448,7 @@ export function App(): JSX.Element {
         window.location.pathname + window.location.search + hash,
       );
     }
-  }, [mode, election, refElection, focusParty, formulaTokens, formulaBindings]);
+  }, [mode, election, refElection, focusParty, compareMode, formulaTokens, formulaBindings]);
 
   // Persist custom workflows whenever they change.
   useEffect(() => {
@@ -518,14 +526,17 @@ export function App(): JSX.Element {
       }
 
       if (WF_KIND_BY_ID[w.kind].needsParty) {
-        // Votes: a workflow without a `party` means "Kaikki puolueet"
-        // (color by total votes). Support / change still need a party,
-        // so substitute the default for safety.
-        if (w.kind === "votes") {
-          setFocusParty(w.party ?? null);
-        } else {
-          setFocusParty(w.party ?? DEFAULT_PARTY);
-        }
+        // Built-in mittari toggling shouldn't yank the focus party
+        // back to Kokoomus every time — keep the user's current
+        // selection across mittari swaps. Saved (non-builtin)
+        // workflows still apply their explicit `w.party`, so the
+        // user opts back into a specific party by clicking that
+        // saved workflow.
+        setFocusParty((prev) => {
+          if (w.builtin && prev != null) return prev;
+          if (w.kind === "votes") return w.party ?? null;
+          return w.party ?? DEFAULT_PARTY;
+        });
       } else {
         setFocusParty(null);
       }
@@ -742,32 +753,37 @@ export function App(): JSX.Element {
     let min = Infinity;
     let max = -Infinity;
     for (const id of visibleRegionIds) {
-      // At aa or hva level the rows live in their own maps, not in
+      // At aa / hva level the rows live in their own maps, not in
       // the vp+kunta currentResults / refResults maps.
-      const a =
-        currentResults.get(id)?.shares[focusParty] ??
-        hvaById.get(id)?.shares[focusParty] ??
-        aaById.get(id)?.shares[focusParty];
-      let b =
-        refResults.get(id)?.shares[focusParty] ??
-        refHvaById.get(id)?.shares[focusParty] ??
-        refAaById.get(id)?.shares[focusParty];
+      const cur =
+        currentResults.get(id) ??
+        hvaById.get(id) ??
+        aaById.get(id) ??
+        null;
+      let ref =
+        refResults.get(id) ??
+        refHvaById.get(id) ??
+        refAaById.get(id) ??
+        null;
       // AA + ref election with no AA fixture: borrow the parent
-      // kunta's ref share so the diverging ramp still scales to a
-      // meaningful range across visible AAs.
-      if (b == null) {
+      // kunta's ref result so the diverging ramp still scales to a
+      // meaningful range. Only safe for the pp comparison — votes
+      // / pct against the parent kunta's totals would be nonsense
+      // (an AA's votes vs the entire kunta's votes).
+      if (!ref && compareMode === "pp") {
         const aaRow = aaById.get(id);
         const parent = aaRow?.parentKunta;
-        if (parent) b = refResults.get(parent)?.shares[focusParty];
+        if (parent) ref = refResults.get(parent) ?? null;
       }
-      if (a == null || b == null) continue;
-      const d = a - b;
+      if (!cur || !ref) continue;
+      const d = changeValue(cur, ref, focusParty, compareMode);
+      if (d == null) continue;
       if (d < min) min = d;
       if (d > max) max = d;
     }
     if (!Number.isFinite(min) || !Number.isFinite(max) || min === max) return null;
     return { min, max };
-  }, [mode, focusParty, currentResults, refResults, aaById, refAaById, hvaById, refHvaById, visibleRegionIds]);
+  }, [mode, focusParty, compareMode, currentResults, refResults, aaById, refAaById, hvaById, refHvaById, visibleRegionIds]);
 
   /** Range of votes across visible regions — party-specific when a
    *  focus party is set (the votes mode's party picker), total
@@ -868,7 +884,11 @@ export function App(): JSX.Element {
         refHvaById.get(regionId) ??
         refAaById.get(regionId) ??
         null;
-      if (!refResult && level === "aa") {
+      // AA-fallback: borrow the parent kunta's ref result only for
+      // the pp comparison. votes / pct against the parent kunta's
+      // totals would be misleading (an AA's count vs the whole
+      // kunta's count), so leave them as no-data.
+      if (!refResult && level === "aa" && compareMode === "pp") {
         const aaRow = aaById.get(regionId);
         const parent = aaRow?.parentKunta;
         if (parent) refResult = refResults?.get(parent) ?? null;
@@ -882,6 +902,7 @@ export function App(): JSX.Element {
         supportRange,
         changeRange,
         votesRange,
+        compareMode,
       });
     },
     [
@@ -893,6 +914,7 @@ export function App(): JSX.Element {
       refHvaById,
       mode,
       focusParty,
+      compareMode,
       formulaValueByRegion,
       formulaRange,
       supportRange,
@@ -935,15 +957,27 @@ export function App(): JSX.Element {
           return `${label} — ${NUM_FI.format(v)} ääntä`;
         }
         case "change": {
-          const refResult =
+          let refResult =
             refResults?.get(regionId) ??
             refHvaById.get(regionId) ??
-            refAaById.get(regionId);
+            refAaById.get(regionId) ??
+            null;
+          if (!refResult && level === "aa" && compareMode === "pp") {
+            const aaRow = aaById.get(regionId);
+            const parent = aaRow?.parentKunta;
+            if (parent) refResult = refResults?.get(parent) ?? null;
+          }
           if (!focusParty || !refResult) return `${label} — Ei vertailutietoja`;
-          const delta = pointChange(result, refResult, focusParty);
+          const delta = changeValue(result, refResult, focusParty, compareMode);
           if (delta == null) return `${label} — Ei vertailutietoja`;
           const sign = delta > 0 ? "+" : "";
           const abbr = PARTY_BY_ID[focusParty]?.abbr ?? focusParty;
+          if (compareMode === "votes") {
+            return `${label} — ${abbr} ${sign}${NUM_FI.format(Math.round(delta))} ääntä`;
+          }
+          if (compareMode === "pct") {
+            return `${label} — ${abbr} ${sign}${delta.toFixed(1)} %`;
+          }
           return `${label} — ${abbr} ${sign}${delta.toFixed(1)} pp`;
         }
         case "formula": {
@@ -959,7 +993,7 @@ export function App(): JSX.Element {
         }
       }
     },
-    [currentResults, aaById, hvaById, refResults, refAaById, refHvaById, mode, focusParty, formulaValueByRegion, framing],
+    [currentResults, aaById, hvaById, refResults, refAaById, refHvaById, mode, focusParty, compareMode, level, formulaValueByRegion, framing],
   );
 
   /* ─── Legend inputs ────────────────────────────────────── */
@@ -1462,6 +1496,11 @@ export function App(): JSX.Element {
                   >
                     Vertailu = vaali − vertailuvaali
                   </span>
+                  <ParamLabel>Mittayksikkö</ParamLabel>
+                  <CompareModeTabs
+                    value={compareMode}
+                    onChange={setCompareMode}
+                  />
                 </>
               ) : null}
               {mode === "formula" ? (
@@ -1571,6 +1610,7 @@ export function App(): JSX.Element {
               framing={mode === "formula" ? framing : null}
               electionLabel={electionLabel}
               refElectionLabel={mode === "change" ? refLabel : undefined}
+              compareMode={compareMode}
             />
           </div>
         </section>
@@ -1879,6 +1919,53 @@ function FramingTabs({
           onClick={() => onChange(opt.id)}
           role="button"
           tabIndex={0}
+          title={opt.title}
+          style={{ cursor: "pointer", fontSize: 12 }}
+        >
+          {opt.label}
+        </span>
+      ))}
+    </div>
+  );
+}
+
+function CompareModeTabs({
+  value,
+  onChange,
+}: {
+  value: CompareMode;
+  onChange: (m: CompareMode) => void;
+}): JSX.Element {
+  const opts: Array<{ id: CompareMode; label: string; title: string }> = [
+    {
+      id: "pp",
+      label: "Prosenttiyksikköä",
+      title:
+        "Vertailu lasketaan kannatuksen prosenttiyksikköjen erotuksena (vaali − vertailuvaali).",
+    },
+    {
+      id: "votes",
+      label: "Äänimäärä",
+      title:
+        "Vertailu lasketaan absoluuttisen puolueäänen erotuksena, esim. KOK 2023 − KOK 2019 ääniä.",
+    },
+    {
+      id: "pct",
+      label: "Suhteellinen muutos %",
+      title:
+        "Vertailu lasketaan suhteellisena muutoksena puolueen äänimäärässä: (nyt − ennen) / ennen × 100.",
+    },
+  ];
+  return (
+    <div style={{ display: "flex", gap: 4, flexWrap: "wrap" }}>
+      {opts.map((opt) => (
+        <span
+          key={opt.id}
+          className={"pill " + (value === opt.id ? "on" : "")}
+          onClick={() => onChange(opt.id)}
+          role="button"
+          tabIndex={0}
+          aria-pressed={value === opt.id}
           title={opt.title}
           style={{ cursor: "pointer", fontSize: 12 }}
         >

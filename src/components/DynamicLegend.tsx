@@ -22,6 +22,7 @@
 
 import { PARTY_BY_ID } from "../data/catalog";
 import type {
+  CompareMode,
   FormulaFraming,
   PartyId,
   WorkflowKind,
@@ -52,6 +53,9 @@ interface DynamicLegendProps {
   electionLabel?: string;
   /** Reference election's short label, change mode only. */
   refElectionLabel?: string;
+  /** Active comparison measure, change mode only. Drives the unit
+   *  label under the diverging bar. */
+  compareMode?: CompareMode;
 }
 
 export function DynamicLegend(props: DynamicLegendProps): JSX.Element {
@@ -98,6 +102,7 @@ function Body(props: DynamicLegendProps): JSX.Element {
           range={props.changeRange ?? null}
           electionLabel={props.electionLabel}
           refElectionLabel={props.refElectionLabel}
+          compareMode={props.compareMode ?? "pp"}
         />
       );
     case "formula":
@@ -323,11 +328,13 @@ function ChangeBody({
   range,
   electionLabel,
   refElectionLabel,
+  compareMode,
 }: {
   focusParty: PartyId | null;
   range: Range | null;
   electionLabel: string | undefined;
   refElectionLabel: string | undefined;
+  compareMode: CompareMode;
 }): JSX.Element {
   const partyName = focusParty
     ? PARTY_BY_ID[focusParty]?.name ?? focusParty
@@ -336,6 +343,21 @@ function ChangeBody({
     refElectionLabel && electionLabel
       ? `${refElectionLabel} → ${electionLabel}`
       : "";
+  const unit =
+    compareMode === "votes" ? "" : compareMode === "pct" ? "%" : "pp";
+  const measureLabel =
+    compareMode === "votes"
+      ? "äänten muutos"
+      : compareMode === "pct"
+        ? "suhteellinen muutos"
+        : "prosenttiyksikköä";
+  const fmt = (v: number): string => {
+    const sign = v > 0 ? "+" : "";
+    if (compareMode === "votes") {
+      return `${sign}${formatVotesFull(v)}`;
+    }
+    return `${sign}${v.toFixed(1)}${unit ? ` ${unit}` : ""}`;
+  };
   return (
     <>
       <Caption>
@@ -352,9 +374,20 @@ function ChangeBody({
           marginTop: 4,
         }}
       >
-        <span>{range ? `${range.min.toFixed(1)} pp` : "−"}</span>
+        <span>{range ? fmt(range.min) : "−"}</span>
         <span>0</span>
-        <span>{range ? `+${range.max.toFixed(1)} pp` : "+"}</span>
+        <span>{range ? fmt(range.max) : "+"}</span>
+      </div>
+      <div
+        style={{
+          fontSize: 10,
+          opacity: 0.55,
+          fontStyle: "italic",
+          textAlign: "center",
+          marginTop: 2,
+        }}
+      >
+        {measureLabel}
       </div>
     </>
   );

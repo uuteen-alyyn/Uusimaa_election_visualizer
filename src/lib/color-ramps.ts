@@ -15,7 +15,12 @@
  * in place, the formula branch wires through here unchanged.
  */
 
-import type { PartyId, RegionResult, WorkflowKind } from "../types/elections";
+import type {
+  CompareMode,
+  PartyId,
+  RegionResult,
+  WorkflowKind,
+} from "../types/elections";
 
 /** Fill for regions whose fixture data is missing — references the
  *  `<pattern id="nodata-pattern">` defined in `HierarchyMap`. */
@@ -47,10 +52,15 @@ export interface FillOptions {
    *  adaptive `support` mode coloring. When omitted, fixed
    *  thresholds are used (tuned for the largest parties). */
   supportRange?: { min: number; max: number } | null;
-  /** Min/max of percentage-point swings across visible regions
-   *  for adaptive `change` mode coloring. When omitted, fixed
-   *  ±4pp thresholds are used. */
+  /** Min/max of change values across visible regions for adaptive
+   *  diverging-ramp scaling. The unit is whatever `compareMode`
+   *  asks for (pp, absolute votes, or relative %). Omit to fall
+   *  back to the fixed pp thresholds — only sensible when
+   *  `compareMode` is `"pp"`. */
   changeRange?: { min: number; max: number } | null;
+  /** Which measure to compute for `change` mode. Defaults to `"pp"`
+   *  (percentage-point change in share) when omitted. */
+  compareMode?: CompareMode;
   /** Min/max of total votes across visible regions for adaptive
    *  `votes` mode coloring. Without this, drilled-in views where
    *  one kunta dwarfs the rest (e.g. Oulu in Oulun vaalipiiri)
@@ -99,6 +109,7 @@ export function fillForRegion(
         options.refResult,
         options.focusParty,
         options.changeRange ?? null,
+        options.compareMode ?? "pp",
       );
     }
     case "formula":
@@ -289,6 +300,36 @@ export function pointChange(
   return a - b;
 }
 
+/** Compute the change-mode value in the unit asked for by
+ *  `mode`:
+ *
+ *    - `"pp"`    → percentage-point share difference
+ *                  (current.share − ref.share)
+ *    - `"votes"` → absolute vote-count delta
+ *                  (current.partyVotes − ref.partyVotes)
+ *    - `"pct"`   → relative % change of party votes
+ *                  ((now − then) / then × 100)
+ *
+ *  Returns `null` when the comparison is undefined: missing party
+ *  share, or `pct` against zero ref votes. */
+export function changeValue(
+  current: RegionResult,
+  ref: RegionResult,
+  party: PartyId,
+  mode: CompareMode,
+): number | null {
+  const a = current.shares[party];
+  const b = ref.shares[party];
+  if (a == null || b == null) return null;
+  if (mode === "pp") return a - b;
+  const aVotes = (current.votes * a) / 100;
+  const bVotes = (ref.votes * b) / 100;
+  if (mode === "votes") return aVotes - bVotes;
+  // pct: relative change of total party votes between the elections.
+  if (bVotes === 0) return null;
+  return ((aVotes - bVotes) / bVotes) * 100;
+}
+
 /** Diverging purple↔orange ramp.
  *
  *  When a `range` is supplied, buckets are scaled to the largest
@@ -304,9 +345,10 @@ function changeFill(
   ref: RegionResult | null,
   focusParty: PartyId | null,
   range: { min: number; max: number } | null,
+  compareMode: CompareMode,
 ): string {
   if (!ref || !focusParty) return NEUTRAL_FILL;
-  const v = pointChange(current, ref, focusParty);
+  const v = changeValue(current, ref, focusParty, compareMode);
   if (v == null) return NEUTRAL_FILL;
 
   if (range) {
@@ -320,7 +362,11 @@ function changeFill(
     return "var(--ramp-change-5)";
   }
 
-  // Fixed-threshold fallback.
+  // Fixed-threshold fallback only makes sense for percentage-point
+  // share differences. For votes / pct, callers must supply a
+  // computed range — without it we can't know whether ±4 is "tiny"
+  // or "the whole map".
+  if (compareMode !== "pp") return NEUTRAL_FILL;
   if (v <= -4) return "var(--ramp-change-1)";
   if (v <= -1.5) return "var(--ramp-change-2)";
   if (v <= 1.5) return "var(--ramp-change-3)";

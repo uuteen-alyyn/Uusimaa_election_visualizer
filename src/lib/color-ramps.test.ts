@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import type { RegionResult } from "../types/elections";
 
 import {
+  changeValue,
   fillForRegion,
   NEUTRAL_FILL,
   NODATA_FILL,
@@ -142,6 +143,60 @@ describe("pointChange", () => {
   it("returns null when either side is missing the party", () => {
     expect(pointChange(row({ kok: 28 }), row({}), "kok")).toBeNull();
     expect(pointChange(row({}), row({ kok: 22 }), "kok")).toBeNull();
+  });
+});
+
+describe("changeValue", () => {
+  it('"pp" returns share difference', () => {
+    expect(changeValue(row({ kok: 28 }), row({ kok: 22 }), "kok", "pp")).toBe(6);
+  });
+
+  it('"votes" returns absolute party-vote delta', () => {
+    // 28 % of 100k = 28000; 22 % of 100k = 22000; delta = 6000
+    expect(
+      changeValue(
+        row({ kok: 28 }, 100_000),
+        row({ kok: 22 }, 100_000),
+        "kok",
+        "votes",
+      ),
+    ).toBe(6_000);
+  });
+
+  it('"votes" handles different region sizes between elections', () => {
+    // 30 % of 80k = 24000; 25 % of 100k = 25000; delta = -1000
+    expect(
+      changeValue(
+        row({ kok: 30 }, 80_000),
+        row({ kok: 25 }, 100_000),
+        "kok",
+        "votes",
+      ),
+    ).toBe(-1_000);
+  });
+
+  it('"pct" returns relative percentage change of party votes', () => {
+    // (28000 - 22000) / 22000 × 100 ≈ 27.27 %
+    const v = changeValue(
+      row({ kok: 28 }, 100_000),
+      row({ kok: 22 }, 100_000),
+      "kok",
+      "pct",
+    );
+    expect(v).not.toBeNull();
+    expect(v!).toBeCloseTo(27.27, 2);
+  });
+
+  it('"pct" returns null when ref votes is zero', () => {
+    expect(
+      changeValue(row({ kok: 28 }, 100_000), row({ kok: 0 }, 100_000), "kok", "pct"),
+    ).toBeNull();
+  });
+
+  it("returns null when either side is missing the party", () => {
+    expect(changeValue(row({ kok: 28 }), row({}), "kok", "pp")).toBeNull();
+    expect(changeValue(row({ kok: 28 }), row({}), "kok", "votes")).toBeNull();
+    expect(changeValue(row({ kok: 28 }), row({}), "kok", "pct")).toBeNull();
   });
 });
 
