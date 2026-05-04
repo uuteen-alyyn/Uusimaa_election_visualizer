@@ -275,6 +275,81 @@ export function HierarchyMap({
         })}
       </g>
 
+      {/* Helsinki callout — at country (vp) level only. The vp polygon
+          is so small relative to the rest of Finland that even with
+          the Uusimaa label nudge it's hard to interact with directly.
+          A square in the empty Gulf-of-Finland sea area, colored the
+          same as Helsinki and wired to the same onPick/onZoomIn,
+          gives users a comfortably-large click target plus a clear
+          legend marker. */}
+      {level === "vp"
+        ? (() => {
+            const hel = regions.find((r) => r.id === "hel");
+            if (!hel) return null;
+            const isSel = selected === "hel";
+            const isHover = hoverId === "hel";
+            // Square in the Gulf of Finland (empty viewBox region).
+            const sqX = 285;
+            const sqY = 612;
+            const sqSize = 16;
+            const sqCy = sqY + sqSize / 2;
+            return (
+              <g pointerEvents="auto">
+                <line
+                  x1={hel.cx}
+                  y1={hel.cy}
+                  x2={sqX}
+                  y2={sqCy}
+                  stroke="var(--ink)"
+                  strokeWidth={0.6}
+                  strokeDasharray="3 2"
+                  opacity={0.7}
+                  pointerEvents="none"
+                />
+                <rect
+                  x={sqX}
+                  y={sqY}
+                  width={sqSize}
+                  height={sqSize}
+                  fill={getFill("hel")}
+                  stroke="var(--ink)"
+                  strokeWidth={isSel ? 1.6 : isHover ? 1.1 : 0.6}
+                  style={{ cursor: "pointer", transition: "stroke-width 120ms" }}
+                  onClick={() => onPick?.("hel")}
+                  onDoubleClick={() => onZoomIn?.("hel")}
+                  onMouseEnter={() => setHoverId("hel")}
+                  onMouseLeave={() =>
+                    setHoverId((prev) => (prev === "hel" ? null : prev))
+                  }
+                  role="button"
+                  aria-label={
+                    getTooltip
+                      ? getTooltip("hel", hel.label)
+                      : "Helsinki"
+                  }
+                >
+                  <title>
+                    {getTooltip ? getTooltip("hel", hel.label) : "Helsinki"}
+                  </title>
+                </rect>
+                <text
+                  x={sqX + sqSize + 4}
+                  y={sqCy}
+                  textAnchor="start"
+                  dominantBaseline="middle"
+                  fontSize={11}
+                  fontFamily="Architects Daughter, system-ui"
+                  fill="var(--ink)"
+                  pointerEvents="none"
+                  style={{ fontWeight: isSel ? 700 : 400 }}
+                >
+                  Helsinki
+                </text>
+              </g>
+            );
+          })()
+        : null}
+
       {regions.map((r) => {
         const show = labelable.has(r.id) || selected === r.id || hoverId === r.id;
         if (!show) return null;
