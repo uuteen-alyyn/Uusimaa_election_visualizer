@@ -2268,9 +2268,15 @@ function HelpBox(): JSX.Element {
           style={{
             marginTop: 8,
             padding: "10px 14px",
-            fontSize: 12.5,
+            fontSize: 13,
             lineHeight: 1.55,
             background: "var(--paper)",
+            // Override the hand-drawn body font ("Architects Daughter")
+            // with a standard sans-serif — the help text is
+            // longer-form prose where readability matters more than
+            // matching the rest of the design's hand-drawn vibe.
+            fontFamily:
+              "system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif",
           }}
         >
           <HelpSection title="Kartan navigointi">
