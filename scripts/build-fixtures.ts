@@ -349,6 +349,15 @@ async function buildFixture(
     console.log(
       `[prefetch]   ${electionId}: candidates ${totalCandRows} rows → ${withCands} regions`,
     );
+  } else if (electionType === "eu_parliament") {
+    // EU has no per-aanestysalue candidate tables; fall back to the
+    // single national candidate_by_vaalipiiri table (14gx) to fill
+    // candidate lists at vp level.
+    await attachEuCandidates(year, areas);
+    const withCands = areas.filter((a) => (a.candidates?.length ?? 0) > 0).length;
+    console.log(
+      `[prefetch]   ${electionId}: eu candidates → ${withCands} vp regions`,
+    );
   }
 
   return { electionId, areas };
@@ -643,6 +652,104 @@ function attachCandidates(
   for (const region of areas) {
     const list = aggregated.get(region.regionId);
     if (list && list.length > 0) region.candidates = list;
+  }
+}
+
+/** Fetch EU 2024 candidates from `statfin_euvaa_pxt_14gx`
+ *  (Puolue ja ehdokas × Vaalipiiri × votes). Attaches a candidate
+ *  list to every vp row in `areas`.
+ *
+ *  The "Puolue ja ehdokas" dimension mixes party-aggregate rows
+ *  (2-digit codes like "01" = KOK, "06" = VAS) with candidate rows
+ *  (6-digit codes whose first 2 digits are the party prefix). We
+ *  build a `prefix → party-slug` map from the 2-digit rows, then
+ *  derive each candidate's party from their code prefix. */
+async function attachEuCandidates(
+  year: number,
+  areas: RegionResult[],
+): Promise<void> {
+  if (year !== 2024) return; // 2019 archive table has a different shape
+  try {
+    const dbPath = "StatFin/euvaa";
+    const tableId = "statfin_euvaa_pxt_14gx";
+    const metadata = await withRetry(
+      () => pxwebClient.getTableMetadata(dbPath, tableId),
+      `eu cand meta`,
+    );
+    const candVar = metadata.variables.find(
+      (v) => v.code === "Puolue ja ehdokas",
+    );
+    if (!candVar) return;
+
+    // Build prefix → party-slug + candidate id → name maps.
+    const prefixToSlug = new Map<string, string>();
+    const candNames = new Map<string, string>();
+    for (let i = 0; i < candVar.values.length; i++) {
+      const code = candVar.values[i]!;
+      const text = candVar.valueTexts[i] ?? code;
+      if (/^\d{2}$/.test(code)) {
+        const slug = partyKey(text, code);
+        if (slug) prefixToSlug.set(code, slug);
+      } else if (/^\d{6}$/.test(code)) {
+        candNames.set(code, text);
+      }
+    }
+    if (candNames.size === 0) return;
+
+    const resp = await withRetry(
+      () =>
+        pxwebClient.queryTable(dbPath, tableId, {
+          query: [
+            { code: "Vuosi", selection: { filter: "item", values: [String(year)] } },
+            {
+              code: "Puolue ja ehdokas",
+              selection: {
+                filter: "item",
+                values: Array.from(candNames.keys()),
+              },
+            },
+            { code: "Vaalipiiri", selection: { filter: "all", values: ["*"] } },
+            { code: "Tiedot", selection: { filter: "item", values: ["euvaa_aanet"] } },
+          ],
+          response: { format: "json" as const },
+        }),
+      `eu cand query`,
+    );
+
+    type Row = { vp: string; cand: string; votes: number };
+    const byVp = new Map<string, Row[]>();
+    for (const r of resp.data) {
+      const cand = String(r.key[1] ?? "");
+      const vp = String(r.key[2] ?? "");
+      const v = Number(r.values[0]);
+      if (!Number.isFinite(v) || v <= 0) continue;
+      if (!candNames.has(cand)) continue; // skip aggregate rows
+      const arr = byVp.get(vp);
+      if (arr) arr.push({ vp, cand, votes: v });
+      else byVp.set(vp, [{ vp, cand, votes: v }]);
+    }
+
+    for (const region of areas) {
+      if (!/^\d{2}$/.test(region.regionId)) continue;
+      const vpCode = `VP${region.regionId}`;
+      const recs = byVp.get(vpCode);
+      if (!recs) continue;
+      const list: Candidate[] = recs.map((r) => {
+        const prefix = r.cand.slice(0, 2);
+        const slug = prefixToSlug.get(prefix) ?? `_${prefix}`;
+        return {
+          id: r.cand,
+          name: candNames.get(r.cand) ?? r.cand,
+          party: slug,
+          votes: r.votes,
+        };
+      });
+      list.sort((a, b) => b.votes - a.votes);
+      if (list.length > 0) region.candidates = list;
+    }
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    console.warn(`[prefetch]   eu candidates: ${msg}`);
   }
 }
 

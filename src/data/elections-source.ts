@@ -134,24 +134,35 @@ export class LocalFixtureSource implements ElectionDataSource {
       this.candidateCache.set(electionId, []);
       return [];
     }
-    // Walk vp-level rows (kunta + aa rows are subsets of those
-    // candidates; merging vp lists is enough). Sum votes per
-    // candidate id, sort descending, cap at 200 — generous enough
-    // that the composer suggestion list won't run out before the
-    // user types a couple of letters.
-    const byId = new Map<string, Candidate>();
-    for (const a of fixture.areas) {
-      if (!/^\d{2}$/.test(a.regionId)) continue;
-      if (!a.candidates) continue;
-      for (const c of a.candidates) {
-        const existing = byId.get(c.id);
-        if (existing) existing.votes += c.votes;
-        else byId.set(c.id, { ...c });
+
+    /** Merge candidates from one set of region rows. Each candidate
+     *  id is unique within an election, so summing votes across rows
+     *  gives a national total. */
+    const mergeFrom = (predicate: (a: RegionResult) => boolean): Candidate[] => {
+      const byId = new Map<string, Candidate>();
+      for (const a of fixture.areas!) {
+        if (!predicate(a)) continue;
+        if (!a.candidates) continue;
+        for (const c of a.candidates) {
+          const existing = byId.get(c.id);
+          if (existing) existing.votes += c.votes;
+          else byId.set(c.id, { ...c });
+        }
       }
+      return Array.from(byId.values()).sort((a, b) => b.votes - a.votes);
+    };
+
+    // Try vp-level first — vp aggregate rows are the cleanest source
+    // when the build-time prefetch attaches candidates there
+    // (parliamentary, regional, presidential).
+    let list = mergeFrom((a) => /^\d{2}$/.test(a.regionId));
+    // Fall back to kunta-level when vp has no candidates
+    // (kuntavaalit: candidate tables don't carry a VP## aggregate
+    //  row, so candidates only appear on the 3-digit kunta rows).
+    if (list.length === 0) {
+      list = mergeFrom((a) => /^\d{3}$/.test(a.regionId));
     }
-    const list = Array.from(byId.values())
-      .sort((a, b) => b.votes - a.votes)
-      .slice(0, 200);
+    list = list.slice(0, 200);
     this.candidateCache.set(electionId, list);
     return list;
   }
