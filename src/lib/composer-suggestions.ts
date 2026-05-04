@@ -233,7 +233,13 @@ export function buildSuggestions(
   activeChip: FormulaToken | null,
   selectors: ReadonlyArray<SelectorRecord>,
   candidatesForElection: ReadonlyArray<Candidate> | null = null,
-  maxResults = 8,
+  /** Hard cap on returned suggestions. Defaults to no cap — the
+   *  composer's dropdown is already scrollable, so silently
+   *  truncating the list (the prototype's old behaviour) just
+   *  hides legitimate options like the `$A` selector or
+   *  Presidentinvaalit at empty-query type-slot. Tests pass
+   *  small caps to assert sort order. */
+  maxResults = Infinity,
   /** Filter year + type suggestions to elections in this set. When
    *  null, no availability filter is applied (used for tests). */
   availableElectionIds: ReadonlySet<ElectionId> | null = null,
@@ -400,7 +406,11 @@ export function buildSuggestions(
           action: "setField",
           field: "selWho",
           value: name,
-          score: 25,
+          // Sit just above the score-50 parties so the late-binding
+          // selector is visible (the user explicitly asked for this
+          // — without the bump it falls behind every party in the
+          // list). When the user types `$`, jump it to the top.
+          score: q.startsWith("$") ? 95 : 55,
         });
       }
     } else {
