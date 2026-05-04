@@ -62,6 +62,23 @@ export interface HierarchyMapProps {
 const VP_VIEWBOX = COUNTRY_VIEWBOX; // "60 30 300 610"
 const KUNTA_VIEWBOX = "0 0 400 400" as const;
 
+/** Per-vp label nudge for the country view. The polygon centroid
+ *  is the natural label anchor everywhere except Uusimaa, whose
+ *  centroid sits directly on top of the (much smaller) Helsinki vp
+ *  polygon — so by default "Uusimaa" hides Helsinki. Pull it
+ *  northward to expose Helsinki visually. */
+const VP_LABEL_OFFSET: Readonly<Record<string, { dx: number; dy: number }>> = {
+  uus: { dx: 0, dy: -16 },
+};
+
+function labelOffsetFor(
+  level: DisplayLevel,
+  id: string,
+): { dx: number; dy: number } {
+  if (level !== "vp") return { dx: 0, dy: 0 };
+  return VP_LABEL_OFFSET[id] ?? { dx: 0, dy: 0 };
+}
+
 export function HierarchyMap({
   geometry,
   level,
@@ -265,12 +282,18 @@ export function HierarchyMap({
         const isHover = hoverId === r.id;
         const showHoverBg = isHover && !labelable.has(r.id);
         const text = shortLabelFor(r.label);
+        // Per-vp label nudge — Uusimaa's polygon centroid sits right
+        // on top of the tiny Helsinki vp polygon, so the "Uusimaa"
+        // label hides Helsinki at country view. Nudge it north.
+        const labelOffset = labelOffsetFor(level, r.id);
+        const lx = r.cx + labelOffset.dx;
+        const ly = r.cy + labelOffset.dy;
         return (
           <g key={r.id + "-t"} style={{ pointerEvents: "none" }}>
             {showHoverBg ? (
               <rect
-                x={r.cx - text.length * 3}
-                y={r.cy - 7}
+                x={lx - text.length * 3}
+                y={ly - 7}
                 width={text.length * 6}
                 height={13}
                 rx={2}
@@ -280,8 +303,8 @@ export function HierarchyMap({
               />
             ) : null}
             <text
-              x={r.cx}
-              y={r.cy}
+              x={lx}
+              y={ly}
               textAnchor="middle"
               dominantBaseline="middle"
               fontSize={labelSize}
