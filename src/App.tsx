@@ -195,12 +195,17 @@ function useFormulaResults(
       const result = new Map<ElectionId, Map<string, RegionResult>>();
       await Promise.all(
         electionIds.map(async (eid) => {
-          const [vp, kunta] = await Promise.all([
+          // Include HVA rows so formula evaluation works when the
+          // map is drilled into HVA view — without this, every
+          // `hv\d{2}` region id resolves to null and the formula
+          // ramp collapses across the visible HVAs.
+          const [vp, kunta, hva] = await Promise.all([
             source.listAreas("vp", null, eid),
             source.listAreas("kunta", null, eid),
+            source.listAreas("hva", null, eid),
           ]);
           const m = new Map<string, RegionResult>();
-          for (const r of [...vp, ...kunta]) m.set(r.regionId, r);
+          for (const r of [...vp, ...kunta, ...hva]) m.set(r.regionId, r);
           result.set(eid, m);
         }),
       );
@@ -681,30 +686,10 @@ export function App(): JSX.Element {
     );
   }, [mode, resolvedFormula, formulaRegionIds, formulaLookup, framing]);
 
-  /* ─── Adaptive support / change ranges across visible regions ── */
-
-  /** Range of focus-party shares across visible regions — drives the
-   *  `support` ramp's adaptive bucketing so small parties (Vihr, Vas,
-   *  Rkp, KD) read as real variation across the map instead of
-   *  collapsing into the lightest 1–2 fixed buckets. */
-  const supportRange = useMemo(() => {
-    if (mode !== "support" || !focusParty || !currentResults) return null;
-    let min = Infinity;
-    let max = -Infinity;
-    for (const id of visibleRegionIds) {
-      const v = currentResults.get(id)?.shares[focusParty];
-      if (v == null) continue;
-      if (v < min) min = v;
-      if (v > max) max = v;
-    }
-    if (!Number.isFinite(min) || !Number.isFinite(max) || min === max) return null;
-    return { min, max };
-  }, [mode, focusParty, currentResults, visibleRegionIds]);
-
-  /** aa-row lookups, used by every level-aware computation below
-   *  (changeRange, votesRange, getFill, getTooltip, no-data check).
-   *  Defined here so they're visible to changeRange / hasNoDataInView
-   *  which run before the tooltip block. */
+  /** Per-level row lookups. Declared before the adaptive-range
+   *  memos so those can fall back through aa/hva when the user has
+   *  drilled into a level whose rows don't live in the
+   *  vp+kunta `currentResults` map. */
   const aaById = useMemo(
     () => new Map(aaResults.map((r) => [r.regionId, r])),
     [aaResults],
@@ -721,6 +706,34 @@ export function App(): JSX.Element {
     () => new Map(refHvaResults.map((r) => [r.regionId, r])),
     [refHvaResults],
   );
+
+  /* ─── Adaptive support / change ranges across visible regions ── */
+
+  /** Range of focus-party shares across visible regions — drives the
+   *  `support` ramp's adaptive bucketing so small parties (Vihr, Vas,
+   *  Rkp, KD) read as real variation across the map instead of
+   *  collapsing into the lightest 1–2 fixed buckets. */
+  const supportRange = useMemo(() => {
+    if (mode !== "support" || !focusParty || !currentResults) return null;
+    let min = Infinity;
+    let max = -Infinity;
+    for (const id of visibleRegionIds) {
+      // At hva / aa level the rows live in their own maps, not in
+      // the vp+kunta currentResults — without the fallback chain
+      // the range is empty and the ramp collapses to fixed
+      // parliamentary-vp thresholds, painting every HVA the same
+      // colour.
+      const v =
+        currentResults.get(id)?.shares[focusParty] ??
+        hvaById.get(id)?.shares[focusParty] ??
+        aaById.get(id)?.shares[focusParty];
+      if (v == null) continue;
+      if (v < min) min = v;
+      if (v > max) max = v;
+    }
+    if (!Number.isFinite(min) || !Number.isFinite(max) || min === max) return null;
+    return { min, max };
+  }, [mode, focusParty, currentResults, hvaById, aaById, visibleRegionIds]);
 
   /** Range of percentage-point swings across visible regions — same
    *  rationale as `supportRange` but for the diverging change ramp. */
@@ -759,7 +772,11 @@ export function App(): JSX.Element {
     let min = Infinity;
     let max = -Infinity;
     for (const id of visibleRegionIds) {
-      const r = currentResults.get(id);
+      // Fall back through hva / aa rows so HVA / AA drill-down
+      // views compute a real range instead of collapsing to the
+      // fixed parliamentary-vp thresholds (20K/50K/100K/200K).
+      const r =
+        currentResults.get(id) ?? hvaById.get(id) ?? aaById.get(id) ?? null;
       if (!r) continue;
       const v = votesValue(r, focusParty);
       if (focusParty && v === 0) continue; // treat as no-data
@@ -768,7 +785,7 @@ export function App(): JSX.Element {
     }
     if (!Number.isFinite(min) || !Number.isFinite(max) || min === max) return null;
     return { min, max };
-  }, [mode, focusParty, currentResults, visibleRegionIds]);
+  }, [mode, focusParty, currentResults, hvaById, aaById, visibleRegionIds]);
 
   // Per-region formula values (memoised, so getFill is O(1) per call).
   const formulaValueByRegion = useMemo(() => {
@@ -1385,14 +1402,25 @@ export function App(): JSX.Element {
               ) : null}
               {mode === "change" ? (
                 <>
-                  <ParamLabel>Vertailu</ParamLabel>
+                  <ParamLabel>Vertailuvaali</ParamLabel>
                   <ElectionPicker
                     value={refElection}
                     onChange={setRefElection}
                     exclude={new Set([election])}
                     hasData={electionsWithData}
-                    ariaLabel="Vertailuvuosi"
+                    ariaLabel="Vertailuvaali"
                   />
+                  <span
+                    style={{
+                      fontSize: 11,
+                      opacity: 0.65,
+                      fontStyle: "italic",
+                      flexBasis: "100%",
+                      marginTop: 2,
+                    }}
+                  >
+                    Vertailu = vaali − vertailuvaali
+                  </span>
                 </>
               ) : null}
               {mode === "formula" ? (
