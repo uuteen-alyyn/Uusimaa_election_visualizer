@@ -137,7 +137,11 @@ export function HierarchyMap({
     if (!head) return raw;
     if (nameTokens.length <= 1) return `${head}.`;
     const tail = (nameTokens[1] ?? "").charAt(0);
-    return tail ? `${head}. ${tail}` : `${head}.`;
+    // Only include the tail when it's a letter — names like
+    // "Lauttasaari (etelä)" shouldn't render as "Laut. (".
+    return tail && /[a-zåäöA-ZÅÄÖ]/.test(tail)
+      ? `${head}. ${tail}`
+      : `${head}.`;
   };
 
   /* Keyboard navigation: when the SVG has focus, Tab/→/↓ cycle to
