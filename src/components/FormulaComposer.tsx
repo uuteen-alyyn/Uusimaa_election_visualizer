@@ -58,10 +58,28 @@ export function FormulaComposer({
   const [whoMode, setWhoMode] = useState<WhoMode>("party");
   const inputRef = useRef<HTMLInputElement | null>(null);
 
-  // Active chip = the trailing chip if it's still incomplete, else null.
-  const lastChip = tokens[tokens.length - 1];
+  /** Insertion-cursor position, 0…tokens.length. New tokens are
+   *  inserted at this index; the input renders at this slot in the
+   *  chip row. Clicking a chip moves the cursor in front of it,
+   *  ArrowLeft / ArrowRight nudge by 1 (only when the input is
+   *  empty so normal text-cursor behaviour isn't stolen). */
+  const [cursor, setCursor] = useState(tokens.length);
+
+  // Keep cursor pinned to the end whenever it would fall off the
+  // right edge after an external token edit (e.g. parent state
+  // resets `tokens` to []), so the user lands somewhere sensible.
+  useEffect(() => {
+    if (cursor > tokens.length) setCursor(tokens.length);
+  }, [tokens.length, cursor]);
+
+  /** Active chip = the chip immediately before the cursor that's
+   *  still being filled. Lets the suggestion list and slot label
+   *  follow the cursor, not just the trailing chip. */
+  const tokenBeforeCursor = cursor > 0 ? tokens[cursor - 1] : undefined;
   const activeChip =
-    lastChip && lastChip.kind === "chip" && !chipIsComplete(lastChip) ? lastChip : null;
+    tokenBeforeCursor && tokenBeforeCursor.kind === "chip" && !chipIsComplete(tokenBeforeCursor)
+      ? tokenBeforeCursor
+      : null;
   const activeField = activeChip ? nextFieldFor(activeChip) : "type";
 
   // Reset highlighted index whenever the query, slot, or who-mode changes.
@@ -134,6 +152,7 @@ export function FormulaComposer({
     field: "type" | "selType" | "year" | "selYear" | "who" | "selWho",
     val: unknown,
   ): void => {
+    let cursorAdvance = 0;
     setTokens((arr) => {
       const next = arr.slice();
       const target =
@@ -152,10 +171,19 @@ export function FormulaComposer({
       else if (field === "who") chip.fields.who = val as ChipFields["who"];
       else if (field === "selWho") chip.fields.selWho = val as string;
 
-      if (activeChip) next[next.length - 1] = chip;
-      else next.push(chip);
+      if (activeChip) {
+        // Replace the chip immediately before the cursor — it
+        // stays in place; cursor doesn't move.
+        next[cursor - 1] = chip;
+      } else {
+        // Insert a brand-new chip at the cursor and step over it
+        // so the next slot can be filled in the same chip.
+        next.splice(cursor, 0, chip);
+        cursorAdvance = 1;
+      }
       return next;
     });
+    if (cursorAdvance) setCursor((c) => c + cursorAdvance);
   };
 
   const registerSelector = (name: string, slot: SelectorRecord["slot"]): void => {
@@ -170,11 +198,26 @@ export function FormulaComposer({
   const accept = (s: Suggestion | undefined): void => {
     if (!s) return;
     if (s.action === "op") {
-      setTokens((arr) => [...arr, { kind: "op", value: s.op }]);
+      setTokens((arr) => {
+        const next = arr.slice();
+        next.splice(cursor, 0, { kind: "op", value: s.op });
+        return next;
+      });
+      setCursor((c) => c + 1);
     } else if (s.action === "paren") {
-      setTokens((arr) => [...arr, { kind: "paren", value: s.paren }]);
+      setTokens((arr) => {
+        const next = arr.slice();
+        next.splice(cursor, 0, { kind: "paren", value: s.paren });
+        return next;
+      });
+      setCursor((c) => c + 1);
     } else if (s.action === "num") {
-      setTokens((arr) => [...arr, { kind: "num", value: s.num }]);
+      setTokens((arr) => {
+        const next = arr.slice();
+        next.splice(cursor, 0, { kind: "num", value: s.num });
+        return next;
+      });
+      setCursor((c) => c + 1);
     } else if (s.action === "setField") {
       applyToActiveChip(s.field, s.value);
       if (s.field.startsWith("sel")) {
@@ -197,6 +240,21 @@ export function FormulaComposer({
         e.preventDefault();
         setIdx((i) => Math.max(i - 1, 0));
       }
+    } else if (e.key === "ArrowLeft") {
+      // Move the insertion cursor one chip to the left when there's
+      // no in-input text to navigate. Falls through to the native
+      // text-cursor behaviour while the user is typing.
+      if (value === "" && cursor > 0) {
+        e.preventDefault();
+        setCursor((c) => c - 1);
+        setOpen(true);
+      }
+    } else if (e.key === "ArrowRight") {
+      if (value === "" && cursor < tokens.length) {
+        e.preventDefault();
+        setCursor((c) => c + 1);
+        setOpen(true);
+      }
     } else if (e.key === "Enter") {
       if (open && suggestions.length > 0) {
         e.preventDefault();
@@ -205,22 +263,49 @@ export function FormulaComposer({
     } else if (e.key === "Escape") {
       setOpen(false);
     } else if ((e.key === "Backspace" || e.key === "Delete") && value === "") {
+      // Backspace removes (or strips a slot from) the token
+      // immediately before the cursor — was always "the trailing
+      // token" before, now follows wherever the cursor is.
+      if (cursor === 0) return;
       e.preventDefault();
       setTokens((arr) => {
-        if (arr.length === 0) return arr;
-        const last = arr[arr.length - 1]!;
-        if (last.kind === "chip") {
-          const stripped = stripLastField(last);
-          if (!stripped) return arr.slice(0, -1);
-          return [...arr.slice(0, -1), stripped];
+        const before = arr[cursor - 1];
+        if (!before) return arr;
+        if (before.kind === "chip") {
+          const stripped = stripLastField(before);
+          if (!stripped) {
+            return [...arr.slice(0, cursor - 1), ...arr.slice(cursor)];
+          }
+          return [
+            ...arr.slice(0, cursor - 1),
+            stripped,
+            ...arr.slice(cursor),
+          ];
         }
-        return arr.slice(0, -1);
+        return [...arr.slice(0, cursor - 1), ...arr.slice(cursor)];
       });
+      // If we removed the token outright (rather than stripping a
+      // slot), the cursor should slide left by one to stay in
+      // place. We can't observe inside the setter, so check on the
+      // next tick — simpler: only decrement when the chip can't be
+      // stripped further, which is exactly `stripLastField === null`.
+      const before = tokens[cursor - 1];
+      if (
+        !before ||
+        before.kind !== "chip" ||
+        stripLastField(before) === null
+      ) {
+        setCursor((c) => Math.max(0, c - 1));
+      }
     }
   };
 
   const removeTokenAt = (i: number): void => {
     setTokens((arr) => arr.filter((_, j) => j !== i));
+    // Keep the cursor pinned to its visual position when a token to
+    // the left is removed — without this, deleting a chip via its
+    // ✕ button would silently push the input one slot to the right.
+    setCursor((c) => (i < c ? c - 1 : c));
   };
 
   const candidatesAvailable = activeField === "who" && candidates.length > 0;
@@ -277,7 +362,14 @@ export function FormulaComposer({
 
       <div
         onMouseDown={(e) => {
-          if (e.target === e.currentTarget) focusInput();
+          // Click on empty padding inside the chip row → drop the
+          // cursor at the end and focus the input. Click on a chip
+          // is handled below; this only fires when the click hit
+          // the row itself, not a child.
+          if (e.target === e.currentTarget) {
+            setCursor(tokens.length);
+            focusInput();
+          }
         }}
         style={{
           minHeight: 60,
@@ -294,46 +386,53 @@ export function FormulaComposer({
         }}
       >
         {tokens.map((t, i) => (
-          <ChipPill
-            key={`${i}-${tokenSig(t)}`}
-            chip={t}
-            onRemove={() => removeTokenAt(i)}
-          />
+          <span key={`group-${i}`} style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
+            {/* Render the input slot wherever the cursor index says
+                — before the chip when cursor === i. */}
+            {i === cursor ? (
+              <CursorInput
+                inputRef={inputRef}
+                value={value}
+                placeholder={isEmpty ? 'Kirjoita — esim. "eduskuntavaalit"' : fieldPrompt}
+                onChangeValue={(v) => {
+                  setValue(v);
+                  setOpen(true);
+                }}
+                onFocus={() => setOpen(true)}
+                onBlur={() => setTimeout(() => setOpen(false), 150)}
+                onKeyDown={onKeyDown}
+                inline
+              />
+            ) : null}
+            <ChipPill
+              chip={t}
+              onClick={() => {
+                // Click on a chip drops the cursor in front of it
+                // so the user can insert / replace / backspace at
+                // that position without rebuilding from the end.
+                setCursor(i);
+                setValue("");
+                setOpen(true);
+                focusInput();
+              }}
+              onRemove={() => removeTokenAt(i)}
+            />
+          </span>
         ))}
-        <span
-          style={{
-            display: "inline-flex",
-            alignItems: "center",
-            position: "relative",
-            flex: "1 1 180px",
-            minWidth: 180,
-          }}
-        >
-          <input
-            ref={inputRef}
+        {cursor === tokens.length ? (
+          <CursorInput
+            inputRef={inputRef}
             value={value}
             placeholder={isEmpty ? 'Kirjoita — esim. "eduskuntavaalit"' : fieldPrompt}
-            onChange={(e) => {
-              setValue(e.target.value);
+            onChangeValue={(v) => {
+              setValue(v);
               setOpen(true);
             }}
             onFocus={() => setOpen(true)}
             onBlur={() => setTimeout(() => setOpen(false), 150)}
             onKeyDown={onKeyDown}
-            aria-label="Kaavan rakentaja"
-            style={{
-              flex: 1,
-              minWidth: 120,
-              border: "none",
-              outline: "none",
-              background: "transparent",
-              fontFamily: "inherit",
-              fontSize: 14,
-              padding: "3px 2px",
-              color: "var(--ink)",
-            }}
           />
-        </span>
+        ) : null}
 
         {open && (suggestions.length > 0 || candidatesAvailable) ? (
           <div
@@ -442,7 +541,7 @@ export function FormulaComposer({
             marginLeft: "auto",
           }}
         >
-          ↵ valitse · ↑↓ navigoi · ⌫ poista viimeinen kenttä · ✕ poista chip
+          ↵ valitse · ↑↓ navigoi · ←→ siirrä kursoria · ⌫ poista edellinen · ✕ poista chip · klikkaa chippiä siirtääksesi kursorin
         </span>
       </div>
     </div>
@@ -451,23 +550,33 @@ export function FormulaComposer({
 
 /* ─── Chip pill renderer ───────────────────────────────────── */
 
-function tokenSig(t: FormulaToken): string {
-  if (t.kind === "num") return `n${t.value}`;
-  if (t.kind === "op") return `o${t.value}`;
-  if (t.kind === "paren") return `p${t.value}`;
-  return `c${JSON.stringify(t.fields)}`;
-}
-
 function ChipPill({
   chip,
+  onClick,
   onRemove,
 }: {
   chip: FormulaToken;
+  /** Click anywhere on the chip body — drops the cursor in front
+   *  of it so the user can edit at that position. The ✕ remove
+   *  button stops propagation so it doesn't double-fire. */
+  onClick?: () => void;
   onRemove?: () => void;
 }): JSX.Element {
+  const clickHandler = onClick
+    ? {
+        onMouseDown: (e: React.MouseEvent) => {
+          // preventDefault keeps the input's blur from firing first
+          // (which would close the suggestion dropdown).
+          e.preventDefault();
+          onClick();
+        },
+        style: { cursor: "pointer" as const },
+      }
+    : { style: {} };
   if (chip.kind === "op") {
     return (
       <span
+        {...clickHandler}
         style={{
           display: "inline-flex",
           alignItems: "center",
@@ -479,6 +588,7 @@ function ChipPill({
           fontFamily: "var(--font-mono)",
           fontSize: 13,
           fontWeight: 700,
+          ...clickHandler.style,
         }}
       >
         {chip.value}
@@ -488,6 +598,7 @@ function ChipPill({
   if (chip.kind === "paren") {
     return (
       <span
+        {...clickHandler}
         style={{
           display: "inline-flex",
           padding: "3px 9px",
@@ -495,6 +606,7 @@ function ChipPill({
           borderRadius: "var(--radius-chip)",
           fontFamily: "var(--font-mono)",
           fontSize: 13,
+          ...clickHandler.style,
         }}
       >
         {chip.value}
@@ -504,6 +616,7 @@ function ChipPill({
   if (chip.kind === "num") {
     return (
       <span
+        {...clickHandler}
         style={{
           display: "inline-flex",
           padding: "3px 8px",
@@ -512,6 +625,7 @@ function ChipPill({
           borderRadius: "var(--radius-chip)",
           fontFamily: "var(--font-mono)",
           fontSize: 13,
+          ...clickHandler.style,
         }}
       >
         {chip.value}
@@ -540,6 +654,7 @@ function ChipPill({
   const borderStyle = hasSel ? "dashed" : "solid";
   return (
     <span
+      {...clickHandler}
       title={chipFullText(f)}
       style={{
         display: "inline-flex",
@@ -552,6 +667,7 @@ function ChipPill({
         color,
         fontSize: 13,
         whiteSpace: "nowrap",
+        ...clickHandler.style,
       }}
     >
       {chipText(f)}
@@ -567,6 +683,71 @@ function ChipPill({
           ✕
         </span>
       ) : null}
+    </span>
+  );
+}
+
+/** Cursor-position-aware input. Renders inline (squished narrow)
+ *  when sitting between chips, and at the trailing end fills the
+ *  remaining row so the placeholder stays readable. */
+function CursorInput({
+  inputRef,
+  value,
+  placeholder,
+  onChangeValue,
+  onFocus,
+  onBlur,
+  onKeyDown,
+  inline = false,
+}: {
+  inputRef: React.RefObject<HTMLInputElement>;
+  value: string;
+  placeholder: string;
+  onChangeValue: (v: string) => void;
+  onFocus: () => void;
+  onBlur: () => void;
+  onKeyDown: (e: React.KeyboardEvent<HTMLInputElement>) => void;
+  inline?: boolean;
+}): JSX.Element {
+  return (
+    <span
+      style={{
+        display: "inline-flex",
+        alignItems: "center",
+        position: "relative",
+        flex: inline ? "0 1 auto" : "1 1 180px",
+        minWidth: inline ? 8 : 180,
+        // When sitting between two chips, render a thin vertical
+        // bar as a cursor caret so the user sees where the next
+        // token will land.
+        borderLeft: inline ? "1.5px solid var(--ink)" : "none",
+        marginLeft: inline ? 2 : 0,
+        paddingLeft: inline ? 2 : 0,
+      }}
+    >
+      <input
+        ref={inputRef}
+        value={value}
+        placeholder={inline && value === "" ? "" : placeholder}
+        onChange={(e) => onChangeValue(e.target.value)}
+        onFocus={onFocus}
+        onBlur={onBlur}
+        onKeyDown={onKeyDown}
+        aria-label="Kaavan rakentaja"
+        size={inline ? Math.max(1, value.length || 1) : undefined}
+        style={{
+          flex: inline ? "0 1 auto" : 1,
+          minWidth: inline ? 4 : 120,
+          width: inline ? `${Math.max(1, value.length || 1)}ch` : undefined,
+          border: "none",
+          outline: "none",
+          background: "transparent",
+          fontFamily: "inherit",
+          fontSize: 14,
+          padding: "3px 2px",
+          color: "var(--ink)",
+        }}
+      />
     </span>
   );
 }
