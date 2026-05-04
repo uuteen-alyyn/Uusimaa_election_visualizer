@@ -34,12 +34,15 @@ import {
   ELECTION_TYPES,
 } from "./data/catalog";
 import { pickWinner, pointChange, votesValue } from "./lib/color-ramps";
-import { LocalFixtureSource } from "./data/elections-source";
+import {
+  LocalFixtureSource,
+  type KuntaHvaMap,
+} from "./data/elections-source";
 import { loadGeometry, type ProjectedGeometry } from "./data/geometry";
 
 import { aggregateRegions } from "./lib/aggregate";
 import { fillForRegion } from "./lib/color-ramps";
-import { makeAanestysalueet } from "./data/geometry";
+import { makeAanestysalueet, makeHvaFeatures } from "./data/geometry";
 import {
   downloadDashboardPng,
   downloadMapPng,
@@ -314,13 +317,33 @@ export function App(): JSX.Element {
 
   // Map navigation.
   const [level, setLevel] = useState<DisplayLevel>("vp");
-  /** When level === "kunta": the parent vp's slug.
-   *  When level === "aa": still the parent vp's slug (we need it to
-   *  build the breadcrumb back through kunta). */
+  /** When level === "kunta" or "aa" or "hva": the parent vp's slug.
+   *  Used to build the breadcrumb and drill back up. */
   const [parentSlug, setParentSlug] = useState<string | null>(null);
   /** When level === "aa": the kunta's 3-digit code. */
   const [parentKunta, setParentKunta] = useState<string | null>(null);
   const [selected, setSelected] = useState<string | null>(null);
+
+  /** "Kunta" or "Hyvinvointialue" — toggled via the pill at the
+   *  top-right of the map. When `hva`, drilling from a vp goes to
+   *  HVA view (the vp's hyvinvointialueet) instead of the kunta
+   *  view. The toggle is hidden when there's no meaningful HVA
+   *  alternative for the current vp (Helsinki single-kunta + own
+   *  HVA, Ahvenanmaa no HVA at all). */
+  const [viewMode, setViewMode] = useState<"kunta" | "hva">("kunta");
+  /** kunta → HVA mapping loaded once from /data/kunta-hva.json. Null
+   *  while the fetch is in-flight or if the file is missing (older
+   *  deploy). */
+  const [hvaMap, setHvaMap] = useState<KuntaHvaMap | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    void source.loadHvaMap().then((m) => {
+      if (!cancelled) setHvaMap(m);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [source]);
 
   // Refs for export targets.
   const mapAreaRef = useRef<HTMLDivElement | null>(null);
@@ -543,6 +566,47 @@ export function App(): JSX.Element {
     );
   }, [level, aaResults]);
 
+  /** Async load of HVA aggregate rows for the parent vp. */
+  const [hvaResults, setHvaResults] = useState<RegionResult[]>([]);
+  useEffect(() => {
+    if (level !== "hva" || !parentSlug) {
+      setHvaResults([]);
+      return;
+    }
+    let cancelled = false;
+    void source.listAreas("hva", parentSlug, election).then((rows) => {
+      if (!cancelled) setHvaResults(rows);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [source, level, parentSlug, election]);
+
+  /** Parallel ref-election HVA load for change mode at HVA level. */
+  const [refHvaResults, setRefHvaResults] = useState<RegionResult[]>([]);
+  useEffect(() => {
+    if (level !== "hva" || !parentSlug || mode !== "change") {
+      setRefHvaResults([]);
+      return;
+    }
+    let cancelled = false;
+    void source.listAreas("hva", parentSlug, refElection).then((rows) => {
+      if (!cancelled) setRefHvaResults(rows);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [source, level, parentSlug, refElection, mode]);
+
+  /** Combined-path HVA features for the parent vp — rendered as
+   *  one path per HVA filled with the per-HVA aggregated value. */
+  const hvaFeatures = useMemo(() => {
+    if (level !== "hva" || !parentSlug || !geometry || !hvaMap) return null;
+    const kunnat = geometry.kunnat[parentSlug] ?? [];
+    if (kunnat.length === 0) return null;
+    return makeHvaFeatures(kunnat, hvaMap.kuntaToHva, hvaMap.hvaNames);
+  }, [level, parentSlug, geometry, hvaMap]);
+
   // Region IDs we color in the current map view.
   const visibleRegionIds = useMemo<string[]>(() => {
     if (!geometry) return [];
@@ -550,9 +614,10 @@ export function App(): JSX.Element {
     if (level === "kunta" && parentSlug) {
       return (geometry.kunnat[parentSlug] ?? []).map((k) => k.id);
     }
+    if (level === "hva") return hvaResults.map((r) => r.regionId);
     if (level === "aa") return aaResults.map((r) => r.regionId);
     return [];
-  }, [geometry, level, parentSlug, aaResults]);
+  }, [geometry, level, parentSlug, hvaResults, aaResults]);
 
   const formulaRange = useMemo(() => {
     if (mode !== "formula" || resolvedFormula.length === 0) return null;
@@ -597,6 +662,14 @@ export function App(): JSX.Element {
     () => new Map(refAaResults.map((r) => [r.regionId, r])),
     [refAaResults],
   );
+  const hvaById = useMemo(
+    () => new Map(hvaResults.map((r) => [r.regionId, r])),
+    [hvaResults],
+  );
+  const refHvaById = useMemo(
+    () => new Map(refHvaResults.map((r) => [r.regionId, r])),
+    [refHvaResults],
+  );
 
   /** Range of percentage-point swings across visible regions — same
    *  rationale as `supportRange` but for the diverging change ramp. */
@@ -605,13 +678,15 @@ export function App(): JSX.Element {
     let min = Infinity;
     let max = -Infinity;
     for (const id of visibleRegionIds) {
-      // At aa level the rows live in aaById / refAaById, not in the
-      // vp+kunta currentResults / refResults maps.
+      // At aa or hva level the rows live in their own maps, not in
+      // the vp+kunta currentResults / refResults maps.
       const a =
         currentResults.get(id)?.shares[focusParty] ??
+        hvaById.get(id)?.shares[focusParty] ??
         aaById.get(id)?.shares[focusParty];
       const b =
         refResults.get(id)?.shares[focusParty] ??
+        refHvaById.get(id)?.shares[focusParty] ??
         refAaById.get(id)?.shares[focusParty];
       if (a == null || b == null) continue;
       const d = a - b;
@@ -620,7 +695,7 @@ export function App(): JSX.Element {
     }
     if (!Number.isFinite(min) || !Number.isFinite(max) || min === max) return null;
     return { min, max };
-  }, [mode, focusParty, currentResults, refResults, aaById, refAaById, visibleRegionIds]);
+  }, [mode, focusParty, currentResults, refResults, aaById, refAaById, hvaById, refHvaById, visibleRegionIds]);
 
   /** Range of votes across visible regions — party-specific when a
    *  focus party is set (the votes mode's party picker), total
@@ -676,9 +751,15 @@ export function App(): JSX.Element {
   const getFill = useCallback(
     (regionId: string): string => {
       const result =
-        currentResults?.get(regionId) ?? aaById.get(regionId) ?? null;
+        currentResults?.get(regionId) ??
+        hvaById.get(regionId) ??
+        aaById.get(regionId) ??
+        null;
       const refResult =
-        refResults?.get(regionId) ?? refAaById.get(regionId) ?? null;
+        refResults?.get(regionId) ??
+        refHvaById.get(regionId) ??
+        refAaById.get(regionId) ??
+        null;
       const formulaValue = formulaValueByRegion.get(regionId) ?? null;
       return fillForRegion(result, mode, {
         focusParty,
@@ -693,8 +774,10 @@ export function App(): JSX.Element {
     [
       currentResults,
       aaById,
+      hvaById,
       refResults,
       refAaById,
+      refHvaById,
       mode,
       focusParty,
       formulaValueByRegion,
@@ -709,7 +792,10 @@ export function App(): JSX.Element {
 
   const getTooltip = useCallback(
     (regionId: string, label: string): string => {
-      const result = currentResults?.get(regionId) ?? aaById.get(regionId);
+      const result =
+        currentResults?.get(regionId) ??
+        hvaById.get(regionId) ??
+        aaById.get(regionId);
       if (!result) return `${label} — Ei tietoja`;
       switch (mode) {
         case "winner": {
@@ -735,7 +821,9 @@ export function App(): JSX.Element {
         }
         case "change": {
           const refResult =
-            refResults?.get(regionId) ?? refAaById.get(regionId);
+            refResults?.get(regionId) ??
+            refHvaById.get(regionId) ??
+            refAaById.get(regionId);
           if (!focusParty || !refResult) return `${label} — Ei vertailutietoja`;
           const delta = pointChange(result, refResult, focusParty);
           if (delta == null) return `${label} — Ei vertailutietoja`;
@@ -756,7 +844,7 @@ export function App(): JSX.Element {
         }
       }
     },
-    [currentResults, aaById, refResults, refAaById, mode, focusParty, formulaValueByRegion, framing],
+    [currentResults, aaById, hvaById, refResults, refAaById, refHvaById, mode, focusParty, formulaValueByRegion, framing],
   );
 
   /* ─── Legend inputs ────────────────────────────────────── */
@@ -783,17 +871,21 @@ export function App(): JSX.Element {
     if (!currentResults) return false;
     if (mode === "formula") return false;
     for (const id of visibleRegionIds) {
-      const r = currentResults.get(id) ?? aaById.get(id);
+      const r = currentResults.get(id) ?? hvaById.get(id) ?? aaById.get(id);
       if (!r) return true;
       if (
         mode === "change" &&
         (!focusParty ||
-          !(refResults?.get(id) ?? refAaById.get(id)))
+          !(
+            refResults?.get(id) ??
+            refHvaById.get(id) ??
+            refAaById.get(id)
+          ))
       )
         return true;
     }
     return false;
-  }, [mode, currentResults, aaById, refResults, refAaById, focusParty, visibleRegionIds]);
+  }, [mode, currentResults, aaById, hvaById, refResults, refAaById, refHvaById, focusParty, visibleRegionIds]);
 
   /* ─── Drill handlers ───────────────────────────────────── */
 
@@ -804,8 +896,31 @@ export function App(): JSX.Element {
       if (level === "vp") {
         const vp = geometry.vaalipiirit.find((v) => v.id === id);
         if (!vp) return;
+        // HVA view path: only valid when the vp has at least 2 HVAs
+        // (Helsinki / Ahvenanmaa fall back to kunta view).
+        const hvaCount = vp.slug
+          ? Object.values(hvaMap?.hvaToVp ?? {}).filter((s) => s === vp.slug)
+              .length
+          : 0;
+        if (viewMode === "hva" && hvaCount >= 2) {
+          setLevel("hva");
+          setParentSlug(vp.slug);
+          setParentKunta(null);
+          setSelected(null);
+          return;
+        }
         setLevel("kunta");
         setParentSlug(vp.slug);
+        setParentKunta(null);
+        setSelected(null);
+        return;
+      }
+      if (level === "hva") {
+        // Drilling from HVA → kunta view of the parent vp's kuntat.
+        // We don't filter to "only this HVA's kuntat" — the vp's
+        // full kunta map is more useful for navigation, and kuntat
+        // outside the picked HVA simply paint with their own value.
+        setLevel("kunta");
         setParentKunta(null);
         setSelected(null);
         return;
@@ -821,7 +936,7 @@ export function App(): JSX.Element {
         return;
       }
     },
-    [level, geometry],
+    [level, geometry, viewMode, hvaMap],
   );
 
   const drillUpToCountry = useCallback(() => {
@@ -894,6 +1009,10 @@ export function App(): JSX.Element {
     } else if (level === "kunta") {
       steps.push({ label: "Koko Suomi", onClick: drillUpToCountry });
       steps.push({ label: parentVp?.label ?? "Vaalipiiri" });
+    } else if (level === "hva") {
+      steps.push({ label: "Koko Suomi", onClick: drillUpToCountry });
+      steps.push({ label: parentVp?.label ?? "Vaalipiiri" });
+      steps.push({ label: "Hyvinvointialueet" });
     } else {
       // aa
       steps.push({ label: "Koko Suomi", onClick: drillUpToCountry });
@@ -927,10 +1046,23 @@ export function App(): JSX.Element {
     }
     if (selected) {
       const result =
-        currentResults.get(selected) ?? aaById.get(selected) ?? null;
+        currentResults.get(selected) ??
+        hvaById.get(selected) ??
+        aaById.get(selected) ??
+        null;
       if (level === "vp" && geometry) {
         const vp = geometry.vaalipiirit.find((v) => v.id === selected);
         return { result, label: vp?.label ?? selected, levelLabel: "Vaalipiiri", ...formulaInfo };
+      }
+      if (level === "hva") {
+        const code = selected.startsWith("hv") ? selected.slice(2) : selected;
+        const name = hvaMap?.hvaNames[code] ?? selected;
+        return {
+          result,
+          label: name,
+          levelLabel: "Hyvinvointialue",
+          ...formulaInfo,
+        };
       }
       if (level === "kunta" && geometry && parentSlug) {
         const k = geometry.kunnat[parentSlug]?.find((x) => x.id === selected);
@@ -1186,6 +1318,7 @@ export function App(): JSX.Element {
                 level={level}
                 parentSlug={parentSlug}
                 aaFeatures={aaFeatures}
+                hvaFeatures={hvaFeatures}
                 selected={selected}
                 getFill={getFill}
                 getTooltip={getTooltip}
@@ -1193,6 +1326,50 @@ export function App(): JSX.Element {
                 onZoomIn={onZoomIn}
                 width={520}
                 height={640}
+              />
+              {/* Kunta / Hyvinvointialue toggle, top-right of map. */}
+              <HvaToggle
+                value={viewMode}
+                onChange={(next) => {
+                  setViewMode(next);
+                  // Switching from HVA → kunta at the hva level: drop
+                  // back to kunta view of the same parent vp.
+                  if (next === "kunta" && level === "hva" && parentSlug) {
+                    setLevel("kunta");
+                    setSelected(null);
+                  }
+                  // Switching kunta → HVA at the kunta level: jump to
+                  // hva view of the same parent vp (when meaningful).
+                  if (
+                    next === "hva" &&
+                    level === "kunta" &&
+                    parentSlug &&
+                    hvaMap
+                  ) {
+                    const hvaCount = Object.values(hvaMap.hvaToVp).filter(
+                      (s) => s === parentSlug,
+                    ).length;
+                    if (hvaCount >= 2) {
+                      setLevel("hva");
+                      setSelected(null);
+                    }
+                  }
+                }}
+                visible={
+                  // Always visible at vp/kunta/hva levels; hidden at
+                  // country (vp drill happens via double-click — the
+                  // toggle controls *what* the next drill destination
+                  // becomes) — actually keep it visible at country
+                  // too so the user can preselect the destination.
+                  level !== "aa"
+                }
+                disabledReason={(() => {
+                  if (!parentSlug) return null;
+                  if (parentSlug === "hel" || parentSlug === "ahve") {
+                    return "Helsinki ja Ahvenanmaa: ei hyvinvointialueita";
+                  }
+                  return null;
+                })()}
               />
               <div
                 style={{
@@ -1906,6 +2083,60 @@ function BindingRow({
       {sub ? (
         <span style={{ fontSize: 10, opacity: 0.55 }}>{sub}</span>
       ) : null}
+    </div>
+  );
+}
+
+/* ─── Kunta / HVA toggle ─────────────────────────────────── */
+
+function HvaToggle({
+  value,
+  onChange,
+  visible,
+  disabledReason,
+}: {
+  value: "kunta" | "hva";
+  onChange: (next: "kunta" | "hva") => void;
+  visible: boolean;
+  disabledReason: string | null;
+}): JSX.Element | null {
+  if (!visible) return null;
+  const disabled = disabledReason !== null;
+  return (
+    <div
+      style={{
+        position: "absolute",
+        right: 12,
+        top: 12,
+        zIndex: 5,
+        display: "flex",
+        gap: 4,
+        background: "var(--paper)",
+        border: "var(--border-default) solid var(--line)",
+        borderRadius: "var(--radius-pill)",
+        padding: 3,
+        boxShadow: "var(--shadow-soft)",
+        opacity: disabled ? 0.5 : 1,
+      }}
+      title={disabledReason ?? "Vaihda kartan ryhmittelytaso"}
+    >
+      {(["kunta", "hva"] as const).map((m) => (
+        <span
+          key={m}
+          className={"pill " + (value === m ? "on" : "")}
+          onClick={() => !disabled && onChange(m)}
+          role="button"
+          tabIndex={0}
+          aria-pressed={value === m}
+          style={{
+            cursor: disabled ? "not-allowed" : "pointer",
+            fontSize: 11,
+            padding: "2px 10px",
+          }}
+        >
+          {m === "kunta" ? "Kunta" : "Hyvinvointialue"}
+        </span>
+      ))}
     </div>
   );
 }

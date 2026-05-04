@@ -26,8 +26,17 @@ export type ElectionId = string;
 /** Election type. */
 export type ElectionTypeId = "kunta" | "alue" | "ek" | "eu" | "pres";
 
-/** Hierarchy level for the map view. */
-export type AreaLevel = "maa" | "vp" | "kunta" | "aa";
+/** Hierarchy level for the map view.
+ *
+ *  - `maa`   : country aggregate (synthesised from vp rows)
+ *  - `vp`    : vaalipiiri (electoral district) — 13 nationally
+ *  - `hva`   : hyvinvointialue (welfare region) — 21 + Helsinki
+ *              (Helsinki is its own implicit HVA, Ahvenanmaa has
+ *              none). Aggregation source: PxWeb-direct for alue
+ *              elections; sum of kunta rows for everything else.
+ *  - `kunta` : municipality (~309 in mainland Finland)
+ *  - `aa`    : äänestysalue (polling district) */
+export type AreaLevel = "maa" | "vp" | "hva" | "kunta" | "aa";
 
 /** Canonical 8 parties with bespoke design tokens (see tokens.css `--p-*`).
  *  Smaller parties are allowed via the wider `PartyId` type, but render

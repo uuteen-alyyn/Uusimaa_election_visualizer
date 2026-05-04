@@ -89,6 +89,63 @@ export interface ProjectedKuntaFeature extends ProjectedFeature {
   vp: string;
 }
 
+/** Build "fake" hyvinvointialue features by combining the SVG paths
+ *  of the constituent kunta polygons. The browser's path renderer
+ *  treats the concatenated `d` attribute as one compound shape: the
+ *  fill spans the union (HVA outline + holes from non-shared kunta
+ *  edges), and the stroke draws every kunta boundary including
+ *  internal ones — visually that's "internal kunta borders are
+ *  visible, HVA outline is the natural color transition between
+ *  HVAs", which is the behaviour the user spec'd as a fallback to
+ *  proper polygon-union geometry.
+ *
+ *  Returns one ProjectedFeature per HVA in the parent vp, with the
+ *  HVA code as id (`hv01`, `hv02`, …), the human-readable name as
+ *  label, and an area-weighted centroid for label placement.
+ *  Kuntat without an HVA mapping (e.g. Helsinki + Ahvenanmaa) are
+ *  silently skipped. */
+export function makeHvaFeatures(
+  kunnat: ReadonlyArray<ProjectedKuntaFeature>,
+  kuntaToHva: Record<string, string>,
+  hvaNames: Record<string, string>,
+): ProjectedFeature[] {
+  const groups = new Map<string, ProjectedKuntaFeature[]>();
+  for (const k of kunnat) {
+    const hv = kuntaToHva[k.id];
+    if (!hv) continue;
+    const arr = groups.get(hv);
+    if (arr) arr.push(k);
+    else groups.set(hv, [k]);
+  }
+  const out: ProjectedFeature[] = [];
+  for (const [hv, members] of groups.entries()) {
+    if (members.length === 0) continue;
+    const d = members.map((k) => k.d).join(" ");
+    const totalArea = members.reduce((s, k) => s + (k.area || 0), 0);
+    let cx = 0;
+    let cy = 0;
+    if (totalArea > 0) {
+      for (const k of members) {
+        const w = (k.area || 0) / totalArea;
+        cx += k.cx * w;
+        cy += k.cy * w;
+      }
+    } else {
+      cx = members.reduce((s, k) => s + k.cx, 0) / members.length;
+      cy = members.reduce((s, k) => s + k.cy, 0) / members.length;
+    }
+    out.push({
+      id: `hv${hv}`,
+      label: hvaNames[hv] ?? `HVA ${hv}`,
+      d,
+      cx,
+      cy,
+      area: totalArea,
+    });
+  }
+  return out;
+}
+
 /** Generate a square grid of äänestysalue "polygons" sized to the
  *  given count. We don't have real aa boundaries (and they shift
  *  between elections anyway); the squares are honest about being

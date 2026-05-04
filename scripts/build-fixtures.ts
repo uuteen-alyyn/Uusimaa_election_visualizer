@@ -287,13 +287,20 @@ async function buildFixture(
   electionId: string,
   typeId: ElectionTypeId,
   year: number,
+  hvaMapping: HvaMapping | null,
 ): Promise<FixtureFile> {
   const electionType = TYPE_MAP[typeId];
 
   if (electionType === "presidential") {
     // Round is encoded in the electionId suffix ("pres2024r1" → 1).
     const round = electionId.endsWith("r2") ? 2 : 1;
-    return buildPresidentialFixture(electionId, year, round);
+    const fixture = await buildPresidentialFixture(electionId, year, round);
+    // Pres takes a separate code path; still attach HVA aggregates so
+    // the new HVA view works for presidential elections too.
+    if (fixture.areas && hvaMapping) {
+      attachHvaAggregates(fixture.areas, electionId, hvaMapping);
+    }
+    return fixture;
   }
 
   // Try the submodule's loader first. For multi-year tables that
@@ -365,7 +372,15 @@ async function buildFixture(
     // (HV01..HV21), not vaalipiirit. Replace them with per-vp
     // aggregates synthesised from the kunta-level rows so the App's
     // vp-level coloring (geometry vp codes 01..13) matches the data.
+    // The pre-existing HV rows are preserved as `hv<NN>` for the
+    // HVA view — that's the alvaa election's natural grouping.
     await rewriteAlueVpAggregates(areas, electionId);
+  } else if (hvaMapping) {
+    // Non-alue elections: synthesise per-HVA rows by summing kunta
+    // rows. Mathematically equivalent to "what would PxWeb give us
+    // if it grouped by HVA?" — the user spec'd this as the way to
+    // power the HVA view for ek/kunta/eu/pres elections.
+    attachHvaAggregates(areas, electionId, hvaMapping);
   }
 
   return { electionId, areas };
@@ -1429,6 +1444,187 @@ async function buildPresidentialFixture(
 }
 
 
+/* ─── Hyvinvointialue mapping + aggregation ─────────────────── */
+
+/** PxWeb HV codes (01..21) → human-readable names. Order matches the
+ *  REGIONAL_TABLES mapping in the elections submodule (Helsinki is
+ *  excluded — it has no aluevaalit and acts as its own welfare
+ *  authority). Used by the runtime to label HVA pills + tooltips. */
+const HVA_NAMES: Record<string, string> = {
+  "01": "Itä-Uusimaa",
+  "02": "Keski-Uusimaa",
+  "03": "Länsi-Uusimaa",
+  "04": "Vantaa-Kerava",
+  "05": "Varsinais-Suomi",
+  "06": "Satakunta",
+  "07": "Kanta-Häme",
+  "08": "Pirkanmaa",
+  "09": "Päijät-Häme",
+  "10": "Kymenlaakso",
+  "11": "Etelä-Karjala",
+  "12": "Etelä-Savo",
+  "13": "Pohjois-Savo",
+  "14": "Pohjois-Karjala",
+  "15": "Keski-Suomi",
+  "16": "Etelä-Pohjanmaa",
+  "17": "Pohjanmaa",
+  "18": "Keski-Pohjanmaa",
+  "19": "Pohjois-Pohjanmaa",
+  "20": "Kainuu",
+  "21": "Lappi",
+};
+
+/** Derived at build time from the aluevaalit 2025 äänestysalue
+ *  codes (vp_ku_prefix format = `<HV><kunta><aa>`). PxWeb's own
+ *  area codes ARE the source of truth for the kunta→HVA mapping;
+ *  no hardcoding needed. */
+interface HvaMapping {
+  /** kuntakoodi → 2-digit HVA code. Helsinki + Ahvenanmaa absent
+   *  (they don't participate in aluevaalit). */
+  kuntaToHva: Record<string, string>;
+  /** HVA code → vp slug ("uus", "pir", …). Each HVA lies fully
+   *  within one vaalipiiri, so the lookup is unambiguous. */
+  hvaToVp: Record<string, string>;
+}
+
+async function deriveHvaMapping(): Promise<HvaMapping | null> {
+  // Fetch alvaa 2025 area data via the regional party loader. This
+  // is the same call rebatched later for the alue fixture build —
+  // the cache layer makes the second call free.
+  let res;
+  try {
+    res = await withRetry(
+      () => loadPartyResults(2025, undefined, "regional"),
+      "hva-mapping",
+    );
+  } catch (e) {
+    console.warn(
+      `[prefetch]   hva mapping derivation failed (${(e as Error).message})`,
+    );
+    return null;
+  }
+  const kuntaToHva: Record<string, string> = {};
+  for (const r of res.rows) {
+    if (r.area_level !== "aanestysalue") continue;
+    const m = /^(\d{2})(\d{3})/.exec(r.area_id);
+    if (!m) continue;
+    const hv = m[1]!;
+    const kunta = m[2]!;
+    if (kuntaToHva[kunta]) continue;
+    kuntaToHva[kunta] = hv;
+  }
+  if (Object.keys(kuntaToHva).length === 0) {
+    console.warn(`[prefetch]   hva mapping is empty — no aa rows in alue 2025`);
+    return null;
+  }
+
+  // Cross-reference with fi-kunnat.json to find each HVA's parent vp.
+  const kunnatRaw = await readFile(
+    resolve(REPO_ROOT, "data/fi-kunnat.json"),
+    "utf8",
+  );
+  const kunnatGeo = JSON.parse(kunnatRaw) as {
+    features: Array<{ id: string; vp: string }>;
+  };
+  const maps = await loadGeometryMaps();
+  if (!maps) return null;
+  const kuntaToVpSlug = new Map<string, string>();
+  for (const f of kunnatGeo.features) kuntaToVpSlug.set(f.id, f.vp);
+
+  const hvaToVp: Record<string, string> = {};
+  for (const [kunta, hv] of Object.entries(kuntaToHva)) {
+    const vpSlug = kuntaToVpSlug.get(kunta);
+    if (vpSlug && !hvaToVp[hv]) hvaToVp[hv] = vpSlug;
+  }
+  console.log(
+    `[prefetch]   hva mapping: ${Object.keys(kuntaToHva).length} kuntat → ${Object.keys(hvaToVp).length} HVAs`,
+  );
+  return { kuntaToHva, hvaToVp };
+}
+
+/** For non-alue fixtures, synthesise per-HVA aggregate rows from the
+ *  fixture's kunta-level rows. Each HVA's votes = sum of its
+ *  member kuntat's votes; shares = vote-weighted average; candidates
+ *  merged by id. */
+function attachHvaAggregates(
+  areas: RegionResult[],
+  electionId: string,
+  mapping: HvaMapping,
+): void {
+  // Group kunta rows by HVA.
+  const byHva = new Map<string, RegionResult[]>();
+  for (const a of areas) {
+    if (!/^\d{3}$/.test(a.regionId)) continue;
+    const hv = mapping.kuntaToHva[a.regionId];
+    if (!hv) continue;
+    const arr = byHva.get(hv);
+    if (arr) arr.push(a);
+    else byHva.set(hv, [a]);
+  }
+
+  for (const [hv, rows] of byHva.entries()) {
+    let totalVotes = 0;
+    let totalVoters = 0;
+    const partyVotes = new Map<string, number>();
+    const partyShareSum = new Map<string, number>();
+    const partyShareN = new Map<string, number>();
+    const candById = new Map<
+      string,
+      { id: string; name: string; party: string; votes: number }
+    >();
+    for (const r of rows) {
+      totalVotes += r.votes;
+      totalVoters += r.voters;
+      for (const [party, share] of Object.entries(r.shares)) {
+        if (share == null) continue;
+        partyVotes.set(
+          party,
+          (partyVotes.get(party) ?? 0) + (r.votes * share) / 100,
+        );
+        partyShareSum.set(party, (partyShareSum.get(party) ?? 0) + share);
+        partyShareN.set(party, (partyShareN.get(party) ?? 0) + 1);
+      }
+      if (r.candidates) {
+        for (const c of r.candidates) {
+          const existing = candById.get(c.id);
+          if (existing) existing.votes += c.votes;
+          else candById.set(c.id, { ...c });
+        }
+      }
+    }
+    if (rows.length === 0) continue;
+    const shares: Record<string, number> = {};
+    if (totalVotes > 0) {
+      for (const [p, v] of partyVotes.entries()) {
+        shares[p] = (v / totalVotes) * 100;
+      }
+    } else {
+      // No raw vote counts (older-pres archive km_ku tables) — fall
+      // back to simple share averaging across the HVA's kuntat. Less
+      // accurate than vote-weighted but lets the HVA view paint
+      // older pres elections with sensible colors.
+      const n = rows.length;
+      for (const [p, sum] of partyShareSum.entries()) {
+        shares[p] = sum / n;
+      }
+    }
+    const turnout = totalVoters > 0 ? (totalVotes / totalVoters) * 100 : 0;
+    const result: RegionResult = {
+      regionId: `hv${hv}`,
+      electionId,
+      votes: totalVotes,
+      voters: totalVoters,
+      turnout,
+      shares,
+    };
+    const cands = Array.from(candById.values()).sort(
+      (a, b) => b.votes - a.votes,
+    );
+    if (cands.length > 0) result.candidates = cands.slice(0, TOP_N_PER_REGION);
+    areas.push(result);
+  }
+}
+
 /* ─── Alue: per-vp aggregation from kunta rows ──────────────── */
 
 /** Loads the vp-slug → vp-code mapping and the kunta-code → vp-code
@@ -1467,11 +1663,25 @@ async function loadGeometryMaps(): Promise<typeof geometryMaps> {
 
 /** Replace an alue fixture's 2-digit rows (which are hyvinvointialue
  *  aggregates, not vaalipiiri) with per-vp aggregates synthesised
- *  from the kunta-level rows. */
+ *  from the kunta-level rows.
+ *
+ *  Before dropping, preserves the original HVA-level rows under
+ *  `hv<NN>` regionIds so they're available to the runtime HVA view.
+ *  Aluevaalit's HVA results come straight from PxWeb here — no
+ *  kunta-aggregation needed (the user spec'd this distinction). */
 async function rewriteAlueVpAggregates(areas: RegionResult[], electionId: string): Promise<void> {
   const maps = await loadGeometryMaps();
   if (!maps) return;
   const { kuntaToVp } = maps;
+
+  // Capture PxWeb's authoritative HVA aggregates BEFORE we touch them.
+  const hvaRows: RegionResult[] = [];
+  for (const a of areas) {
+    if (/^\d{2}$/.test(a.regionId)) {
+      hvaRows.push({ ...a, regionId: `hv${a.regionId}` });
+    }
+  }
+
   // Group kunta rows by their vp code.
   const byVp = new Map<string, RegionResult[]>();
   for (const a of areas) {
@@ -1509,12 +1719,13 @@ async function rewriteAlueVpAggregates(areas: RegionResult[], electionId: string
       shares,
     });
   }
-  // Drop existing 2-digit rows (hv aggregates) and append vp aggregates.
+  // Drop existing 2-digit rows (hv aggregates) and append vp aggregates
+  // + the preserved HVA rows under `hv<NN>` ids.
   for (let i = areas.length - 1; i >= 0; i--) {
     const reg = areas[i]!.regionId;
     if (/^\d{2}$/.test(reg)) areas.splice(i, 1);
   }
-  areas.push(...vpRows);
+  areas.push(...vpRows, ...hvaRows);
 }
 
 /* ─── Main ──────────────────────────────────────────────────── */
@@ -1548,12 +1759,30 @@ async function main(): Promise<void> {
   await mkdir(OUT_DIR, { recursive: true });
   console.log(`[prefetch] writing fixtures to ${OUT_DIR}`);
 
+  // Derive the kunta→HVA mapping once, before any fixture build. Used
+  // to synthesise per-HVA aggregate rows for non-alue elections (alue
+  // takes its HVA rows directly from PxWeb).
+  const hvaMapping = await deriveHvaMapping();
+  if (hvaMapping) {
+    const file = resolve(PUBLIC_DATA, "kunta-hva.json");
+    await writeFile(
+      file,
+      JSON.stringify({
+        kuntaToHva: hvaMapping.kuntaToHva,
+        hvaToVp: hvaMapping.hvaToVp,
+        hvaNames: HVA_NAMES,
+      }),
+      "utf8",
+    );
+    console.log(`[prefetch] wrote kunta-hva.json (${Object.keys(hvaMapping.kuntaToHva).length} kuntat)`);
+  }
+
   let totalBytes = 0;
   let withData = 0;
   let withoutData = 0;
 
   for (const e of ELECTIONS) {
-    const fixture = await buildFixture(e.id, e.typeId, e.year);
+    const fixture = await buildFixture(e.id, e.typeId, e.year, hvaMapping);
     const json = JSON.stringify(fixture);
     const path = resolve(OUT_DIR, `${e.id}.json`);
     await writeFile(path, json, "utf8");

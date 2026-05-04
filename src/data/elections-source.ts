@@ -53,19 +53,25 @@ export interface ElectionDataSource {
   listCandidates(electionId: ElectionId): Promise<Candidate[]>;
 }
 
+/** Wire shape of `public/data/kunta-hva.json` — emitted by the
+ *  build-time prefetch and read once at runtime to power the HVA
+ *  view's grouping and per-vp filtering. */
+export interface KuntaHvaMap {
+  kuntaToHva: Record<string, string>;
+  hvaToVp: Record<string, string>;
+  hvaNames: Record<string, string>;
+}
+
 /**
  * Reads pre-built JSON fixtures from `/data/elections/{id}.json`.
  *
  * Fixtures are emitted by `scripts/build-fixtures.ts` at build time.
  * The deployed app does no runtime PxWeb fetch — this loader just
  * pulls static JSON, caches it per-election, and slices it.
- *
- * Phase 0 stub: fixtures don't exist yet, so every load currently
- * returns `{ status: "no_data" }`. Phase 1 wires the prefetch
- * script and this loader against real data.
  */
 export class LocalFixtureSource implements ElectionDataSource {
   private cache = new Map<ElectionId, FixtureFile>();
+  private hvaMapPromise: Promise<KuntaHvaMap | null> | null = null;
 
   private async load(electionId: ElectionId): Promise<FixtureFile> {
     const cached = this.cache.get(electionId);
@@ -120,8 +126,38 @@ export class LocalFixtureSource implements ElectionDataSource {
         (a) => a.parentKunta != null && a.parentKunta === parentId,
       );
     }
+    if (level === "hva") {
+      // HVA rows live under `hv<NN>` regionIds. When `parentId` is a
+      // vp slug ("uus", "pir", …), filter to that vp's HVAs.
+      const all = fixture.areas.filter((a) => /^hv\d{2}$/.test(a.regionId));
+      if (!parentId) return all;
+      const map = await this.loadHvaMap();
+      if (!map) return all;
+      return all.filter((a) => {
+        const code = a.regionId.slice(2);
+        return map.hvaToVp[code] === parentId;
+      });
+    }
     // "maa": country aggregate is computed by the UI from vp rows.
     return [];
+  }
+
+  /** Lazily fetch + cache the kunta→HVA mapping written by the
+   *  build-time prefetch. Returns null when the file isn't present
+   *  (e.g. on a stale deploy that pre-dates the HVA feature). */
+  loadHvaMap(): Promise<KuntaHvaMap | null> {
+    if (!this.hvaMapPromise) {
+      this.hvaMapPromise = (async () => {
+        try {
+          const res = await fetch("/data/kunta-hva.json");
+          if (!res.ok) return null;
+          return (await res.json()) as KuntaHvaMap;
+        } catch {
+          return null;
+        }
+      })();
+    }
+    return this.hvaMapPromise;
   }
 
   private candidateCache = new Map<ElectionId, Candidate[]>();

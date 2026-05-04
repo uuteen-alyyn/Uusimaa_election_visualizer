@@ -23,7 +23,7 @@ import {
 } from "../data/geometry";
 
 /** Subset of `AreaLevel` that the map actually renders. */
-export type DisplayLevel = "vp" | "kunta" | "aa";
+export type DisplayLevel = "vp" | "hva" | "kunta" | "aa";
 
 export interface HierarchyMapProps {
   /** Output of `loadGeometry()`. */
@@ -38,6 +38,9 @@ export interface HierarchyMapProps {
    *  Required for aa rendering — there's no real aa geometry,
    *  the caller generates a square grid client-side. */
   aaFeatures?: ReadonlyArray<ProjectedFeature> | null;
+  /** When `level === "hva"`, the per-HVA combined-path features
+   *  from `makeHvaFeatures`. */
+  hvaFeatures?: ReadonlyArray<ProjectedFeature> | null;
   /** Currently-selected region id (drawn with thick stroke). */
   selected: string | null;
   /** Caller-supplied per-region fill. Should return a CSS color
@@ -64,6 +67,7 @@ export function HierarchyMap({
   level,
   parentSlug = null,
   aaFeatures = null,
+  hvaFeatures = null,
   selected,
   getFill,
   getTooltip,
@@ -85,13 +89,20 @@ export function HierarchyMap({
     if (level === "aa") {
       return { regions: aaFeatures ? [...aaFeatures] : [], viewBox: AA_VIEWBOX };
     }
+    if (level === "hva") {
+      return {
+        regions: hvaFeatures ? [...hvaFeatures] : [],
+        viewBox: KUNTA_VIEWBOX,
+      };
+    }
     const list = parentSlug ? (geometry.kunnat[parentSlug] ?? []) : [];
     return { regions: list, viewBox: KUNTA_VIEWBOX };
-  }, [geometry, level, parentSlug, aaFeatures]);
+  }, [geometry, level, parentSlug, aaFeatures, hvaFeatures]);
 
   // Label-visibility rule:
   //   vp:    every region gets a label (only 13–14 regions)
   //   kunta: largest ~28 % by area, plus selected/hovered
+  //   hva:   every HVA labelled (always ≤ ~6 within one vp)
   //   aa:    ALWAYS show the shortened label inside every square —
   //          the full name comes through the SVG <title> on hover.
   const labelable = useMemo(() => {
@@ -100,7 +111,7 @@ export function HierarchyMap({
       const keepN = Math.max(4, Math.ceil(sorted.length * 0.28));
       return new Set(sorted.slice(0, keepN).map((r) => r.id));
     }
-    // vp + aa: every region labelled.
+    // vp + hva + aa: every region labelled.
     return new Set(regions.map((r) => r.id));
   }, [regions, level]);
 
@@ -181,7 +192,9 @@ export function HierarchyMap({
       ? "Suomen kartta, vaalipiirit. Käytä nuolinäppäimiä siirtyäksesi alueesta toiseen, Enter porautuaksesi sisään."
       : level === "kunta"
         ? "Vaalipiirin kunnat. Käytä nuolinäppäimiä siirtyäksesi alueesta toiseen, Enter porautuaksesi äänestysalueisiin."
-        : "Kunnan äänestysalueet (paikkamerkit). Käytä nuolinäppäimiä siirtyäksesi alueesta toiseen.";
+        : level === "hva"
+          ? "Vaalipiirin hyvinvointialueet. Käytä nuolinäppäimiä siirtyäksesi alueesta toiseen, Enter porautuaksesi kuntiin."
+          : "Kunnan äänestysalueet (paikkamerkit). Käytä nuolinäppäimiä siirtyäksesi alueesta toiseen.";
 
   const focusedId = selected ?? hoverId;
   const focusedRegion = focusedId ? regions.find((r) => r.id === focusedId) : null;
