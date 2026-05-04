@@ -377,6 +377,43 @@ export function resolveFormulaTokens(
   });
 }
 
+/** Resolve the election id (e.g. "ek2023", "pres2024r1") for every
+ *  chip in `tokens` that references the given `selWho` selector.
+ *  Returns the unique election id when every referencing chip resolves
+ *  to the same election, or `null` when there are no chips, no
+ *  resolvable election, or multiple distinct elections.
+ *
+ *  Used by the runtime selector-binding picker: when a single
+ *  election is determined, the picker can offer that election's
+ *  candidates as binding options. */
+export function resolveWhoSelectorElection(
+  name: string,
+  tokens: FormulaToken[],
+  bindings: Record<string, Binding>,
+): ElectionId | null {
+  const ids = new Set<ElectionId>();
+  for (const t of tokens) {
+    if (t.kind !== "chip") continue;
+    const f = t.fields;
+    if (f.selWho !== name) continue;
+    let type = f.type;
+    if (!type && f.selType) type = bindings[f.selType]?.type;
+    let year = f.year;
+    let round = f.round;
+    if (!year && f.selYear) {
+      const b = bindings[f.selYear];
+      year = b?.year;
+      round = b?.round;
+    }
+    if (!type || !year) continue;
+    const id =
+      type === "pres" ? `pres${year}r${round ?? 1}` : `${type}${year}`;
+    ids.add(id);
+  }
+  if (ids.size === 1) return ids.values().next().value as ElectionId;
+  return null;
+}
+
 /** Find every distinct selector slot in a token list, in order of
  *  first appearance. Used by the param-row binding picker.
  *

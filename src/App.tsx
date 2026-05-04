@@ -54,6 +54,7 @@ import {
   formulaSummary,
   listSelectors,
   resolveFormulaTokens,
+  resolveWhoSelectorElection,
   type ResultLookup,
 } from "./lib/formula";
 import {
@@ -73,6 +74,8 @@ import {
 
 import type {
   Binding,
+  Candidate,
+  ChipWho,
   ElectionId,
   ElectionTypeId,
   FormulaFraming,
@@ -1007,7 +1010,20 @@ export function App(): JSX.Element {
 
   const electionLabel = ELECTION_BY_ID[election]?.shortLabel ?? election;
   const refLabel = ELECTION_BY_ID[refElection]?.shortLabel ?? refElection;
-  const activeSelectors = listSelectors(formulaTokens);
+  // For each selector, compute the chip-context election id when it's
+  // a `who` slot — so the binding picker can offer that election's
+  // candidates as alternatives to the 8 parties.
+  const activeSelectors = useMemo(
+    () =>
+      listSelectors(formulaTokens).map((s) => ({
+        ...s,
+        resolvedElectionId:
+          s.slot === "who"
+            ? resolveWhoSelectorElection(s.name, formulaTokens, formulaBindings)
+            : null,
+      })),
+    [formulaTokens, formulaBindings],
+  );
 
   return (
     <div className="page" ref={dashboardRef}>
@@ -1056,6 +1072,7 @@ export function App(): JSX.Element {
               setBindings={setFormulaBindings}
               labels={appliedSelectorLabels}
               electionsWithData={electionsWithData}
+              loadCandidates={(id) => source.listCandidates(id)}
             />
           ) : null}
 
@@ -1450,17 +1467,25 @@ function SelectorBindingRow({
   setBindings,
   labels,
   electionsWithData,
+  loadCandidates,
 }: {
   selectors: Array<{
     name: string;
     slot: "type" | "year" | "who";
     typeHint: ElectionTypeId | null;
+    /** Resolved election id (e.g. "ek2023") for `who`-slot selectors,
+     *  computed from sibling bindings. `null` when the chip's other
+     *  slots aren't yet bound, in which case the picker defaults to
+     *  party-only mode. */
+    resolvedElectionId: ElectionId | null;
   }>;
   bindings: Record<string, Binding>;
   setBindings: React.Dispatch<React.SetStateAction<Record<string, Binding>>>;
   labels: Record<string, string>;
   /** `null` while probing — treat every option as available. */
   electionsWithData: ReadonlySet<ElectionId> | null;
+  /** Async lookup for candidates of a given election. */
+  loadCandidates: (electionId: ElectionId) => Promise<Candidate[]>;
 }): JSX.Element {
   const bind = (name: string, patch: Partial<Binding>): void => {
     setBindings((prev) => ({ ...prev, [name]: { ...(prev[name] ?? {}), ...patch } }));
@@ -1549,39 +1574,327 @@ function SelectorBindingRow({
                     // (so picking "Pres 2024 r1" can't bind through
                     // an EU chip and silently resolve to eu2024).
                     (s.typeHint == null || e.typeId === s.typeHint),
-                ).map((e) => (
-                  <option key={e.id} value={`${e.year}_${e.round ?? 1}`}>
-                    {e.shortLabel}
-                  </option>
-                ))}
+                ).map((e) => {
+                  // Just the year, with "· I" / "· II" for pres rounds.
+                  const label =
+                    e.typeId === "pres" && e.round
+                      ? `${e.year} · ${e.round === 2 ? "II" : "I"}`
+                      : String(e.year);
+                  return (
+                    <option key={e.id} value={`${e.year}_${e.round ?? 1}`}>
+                      {label}
+                    </option>
+                  );
+                })}
               </select>
             ) : null}
             {s.slot === "who" ? (
-              <select
-                value={
-                  b.who && "party" in b.who ? b.who.party : ""
-                }
-                onChange={(e) =>
-                  bind(s.name, {
-                    who: e.target.value
-                      ? { party: e.target.value as PartyId }
-                      : undefined,
-                  })
-                }
-                style={selectStyle}
-                aria-label={`Puolue $${s.name}`}
-              >
-                <option value="">— valitse puolue —</option>
-                {PARTIES.map((p) => (
-                  <option key={p.id} value={p.id}>
-                    {PARTY_BY_ID[p.id]?.name ?? p.id}
-                  </option>
-                ))}
-              </select>
+              <WhoBindingPicker
+                selectorName={s.name}
+                value={b.who ?? null}
+                onChange={(next) => bind(s.name, { who: next ?? undefined })}
+                resolvedElectionId={s.resolvedElectionId ?? null}
+                loadCandidates={loadCandidates}
+              />
             ) : null}
           </span>
         );
       })}
     </>
+  );
+}
+
+/* ─── Who-slot binding popover ──────────────────────────────── */
+
+/** Replaces the runtime "who" `<select>` so the user can bind a
+ *  selector to either a party (the original 8) or to a specific
+ *  candidate from the chip's resolved election. Clicking the pill
+ *  toggles a small popover anchored under it.
+ *
+ *  When `resolvedElectionId` is null (the chip's other slots aren't
+ *  bound yet, or chips disagree), the popover only offers parties —
+ *  there's no single election to fetch candidates from. */
+function WhoBindingPicker({
+  selectorName,
+  value,
+  onChange,
+  resolvedElectionId,
+  loadCandidates,
+}: {
+  selectorName: string;
+  value: ChipWho | null;
+  onChange: (next: ChipWho | null) => void;
+  resolvedElectionId: ElectionId | null;
+  loadCandidates: (electionId: ElectionId) => Promise<Candidate[]>;
+}): JSX.Element {
+  const [open, setOpen] = useState(false);
+  const [mode, setMode] = useState<"party" | "candidate">(() =>
+    value && "candidate" in value ? "candidate" : "party",
+  );
+  const [query, setQuery] = useState("");
+  const [candidates, setCandidates] = useState<Candidate[]>([]);
+  const wrapRef = useRef<HTMLSpanElement | null>(null);
+
+  // Load candidates lazily once a resolved election is known.
+  useEffect(() => {
+    if (!resolvedElectionId) {
+      setCandidates([]);
+      return;
+    }
+    let cancelled = false;
+    void loadCandidates(resolvedElectionId).then((list) => {
+      if (!cancelled) setCandidates(list);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [resolvedElectionId, loadCandidates]);
+
+  // Click-outside closes.
+  useEffect(() => {
+    if (!open) return;
+    const onDoc = (e: MouseEvent): void => {
+      if (wrapRef.current && !wrapRef.current.contains(e.target as Node)) {
+        setOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", onDoc);
+    return () => document.removeEventListener("mousedown", onDoc);
+  }, [open]);
+
+  const display = (() => {
+    if (!value) return "— valitse —";
+    if ("party" in value) return PARTY_BY_ID[value.party]?.name ?? value.party;
+    return value.candidate.name;
+  })();
+  const swatchColor = (() => {
+    if (!value) return "transparent";
+    if ("party" in value) return `var(--p-${value.party})`;
+    const known = PARTY_BY_ID[value.candidate.party];
+    return known ? `var(--p-${known.id})` : "var(--ink-mute)";
+  })();
+
+  const filteredCandidates = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    if (!q) return candidates.slice(0, 25);
+    return candidates
+      .filter((c) => c.name.toLowerCase().includes(q))
+      .slice(0, 25);
+  }, [candidates, query]);
+
+  return (
+    <span ref={wrapRef} style={{ position: "relative" }}>
+      <span
+        role="button"
+        tabIndex={0}
+        aria-label={`Valinta $${selectorName}`}
+        onClick={() => setOpen((o) => !o)}
+        onKeyDown={(e) => {
+          if (e.key === "Enter" || e.key === " ") {
+            e.preventDefault();
+            setOpen((o) => !o);
+          }
+        }}
+        style={{
+          display: "inline-flex",
+          alignItems: "center",
+          gap: 5,
+          padding: "2px 4px 2px 4px",
+          borderBottom: "var(--border-default) dotted var(--ink)",
+          cursor: "pointer",
+          fontSize: 12,
+        }}
+      >
+        {value ? (
+          <span
+            className="swatch"
+            style={{ background: swatchColor }}
+            aria-hidden="true"
+          />
+        ) : null}
+        {display}
+        <span style={{ opacity: 0.5, fontSize: 10 }}>▾</span>
+      </span>
+      {open ? (
+        <div
+          style={{
+            position: "absolute",
+            top: "calc(100% + 4px)",
+            left: 0,
+            zIndex: 20,
+            background: "var(--paper)",
+            border: "var(--border-default) solid var(--line)",
+            borderRadius: "var(--radius-box)",
+            boxShadow: "var(--shadow-pop)",
+            padding: 6,
+            minWidth: 220,
+            maxHeight: 320,
+            overflowY: "auto",
+          }}
+        >
+          {resolvedElectionId ? (
+            <div
+              style={{
+                display: "flex",
+                gap: 4,
+                marginBottom: 6,
+                paddingBottom: 6,
+                borderBottom: "1px dotted var(--hair)",
+              }}
+            >
+              {(["party", "candidate"] as const).map((m) => (
+                <span
+                  key={m}
+                  className={"pill " + (mode === m ? "on" : "")}
+                  onClick={() => setMode(m)}
+                  role="button"
+                  tabIndex={0}
+                  style={{ cursor: "pointer", fontSize: 11, padding: "2px 8px" }}
+                >
+                  {m === "party" ? "Puolue" : "Ehdokas"}
+                </span>
+              ))}
+            </div>
+          ) : null}
+          {mode === "party" || !resolvedElectionId ? (
+            <div style={{ display: "flex", flexDirection: "column", gap: 1 }}>
+              <BindingRow
+                label="— tyhjä —"
+                onClick={() => {
+                  onChange(null);
+                  setOpen(false);
+                }}
+                active={value === null}
+              />
+              {PARTIES.map((p) => (
+                <BindingRow
+                  key={p.id}
+                  label={p.name}
+                  swatchColor={`var(--p-${p.id})`}
+                  active={Boolean(value && "party" in value && value.party === p.id)}
+                  onClick={() => {
+                    onChange({ party: p.id });
+                    setOpen(false);
+                  }}
+                />
+              ))}
+            </div>
+          ) : (
+            <div>
+              <input
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+                placeholder="etsi ehdokasta nimellä…"
+                aria-label="Ehdokashaku"
+                autoFocus
+                style={{
+                  width: "100%",
+                  padding: "4px 6px",
+                  fontSize: 12,
+                  border: "1px solid var(--line)",
+                  borderRadius: 4,
+                  background: "var(--paper-2)",
+                  fontFamily: "inherit",
+                  marginBottom: 6,
+                  boxSizing: "border-box",
+                }}
+              />
+              {filteredCandidates.length === 0 ? (
+                <div style={{ padding: "6px 8px", fontSize: 11, opacity: 0.55 }}>
+                  Ei tuloksia
+                </div>
+              ) : (
+                filteredCandidates.map((c) => {
+                  const known = PARTY_BY_ID[c.party];
+                  const partyAbbr =
+                    known?.abbr ?? c.party.replace(/^_/, "").toUpperCase();
+                  return (
+                    <BindingRow
+                      key={c.id}
+                      label={c.name}
+                      sub={partyAbbr}
+                      swatchColor={
+                        known ? `var(--p-${known.id})` : "var(--ink-mute)"
+                      }
+                      active={Boolean(
+                        value &&
+                          "candidate" in value &&
+                          value.candidate.id === c.id,
+                      )}
+                      onClick={() => {
+                        onChange({
+                          candidate: { id: c.id, name: c.name, party: c.party },
+                        });
+                        setOpen(false);
+                      }}
+                    />
+                  );
+                })
+              )}
+            </div>
+          )}
+        </div>
+      ) : null}
+    </span>
+  );
+}
+
+function BindingRow({
+  label,
+  sub,
+  swatchColor,
+  active,
+  onClick,
+}: {
+  label: string;
+  sub?: string;
+  swatchColor?: string;
+  active: boolean;
+  onClick: () => void;
+}): JSX.Element {
+  return (
+    <div
+      role="button"
+      tabIndex={0}
+      onClick={onClick}
+      onKeyDown={(e) => {
+        if (e.key === "Enter" || e.key === " ") {
+          e.preventDefault();
+          onClick();
+        }
+      }}
+      style={{
+        display: "flex",
+        alignItems: "center",
+        gap: 6,
+        padding: "4px 6px",
+        cursor: "pointer",
+        background: active ? "rgba(0,0,0,0.07)" : "transparent",
+        borderRadius: 3,
+        fontSize: 12,
+      }}
+    >
+      {swatchColor ? (
+        <span
+          className="swatch"
+          style={{ background: swatchColor, flexShrink: 0 }}
+          aria-hidden="true"
+        />
+      ) : null}
+      <span
+        style={{
+          flex: 1,
+          minWidth: 0,
+          overflow: "hidden",
+          textOverflow: "ellipsis",
+          whiteSpace: "nowrap",
+        }}
+      >
+        {label}
+      </span>
+      {sub ? (
+        <span style={{ fontSize: 10, opacity: 0.55 }}>{sub}</span>
+      ) : null}
+    </div>
   );
 }
