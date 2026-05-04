@@ -1390,6 +1390,42 @@ export function App(): JSX.Element {
               ) : null}
             </>
           )}
+          {/* Push the Kunta / HVA toggle to the far right of the
+              parameter row so it stays visually separated from the
+              per-mode controls but doesn't sit on top of the map. */}
+          <span style={{ marginLeft: "auto" }} />
+          <HvaToggle
+            value={viewMode}
+            onChange={(next) => {
+              setViewMode(next);
+              if (next === "kunta" && level === "hva" && parentSlug) {
+                setLevel("kunta");
+                setSelected(null);
+              }
+              if (
+                next === "hva" &&
+                level === "kunta" &&
+                parentSlug &&
+                hvaMap
+              ) {
+                const hvaCount = Object.values(hvaMap.hvaToVp).filter(
+                  (s) => s === parentSlug,
+                ).length;
+                if (hvaCount >= 2) {
+                  setLevel("hva");
+                  setSelected(null);
+                }
+              }
+            }}
+            visible={level !== "aa"}
+            disabledReason={(() => {
+              if (!parentSlug) return null;
+              if (parentSlug === "hel" || parentSlug === "ahve") {
+                return "Helsinki ja Ahvenanmaa: ei hyvinvointialueita";
+              }
+              return null;
+            })()}
+          />
         </div>
       </section>
 
@@ -1422,50 +1458,6 @@ export function App(): JSX.Element {
                 getTooltip={getTooltip}
                 onPick={onPick}
                 onZoomIn={onZoomIn}
-              />
-              {/* Kunta / Hyvinvointialue toggle, top-right of map. */}
-              <HvaToggle
-                value={viewMode}
-                onChange={(next) => {
-                  setViewMode(next);
-                  // Switching from HVA → kunta at the hva level: drop
-                  // back to kunta view of the same parent vp.
-                  if (next === "kunta" && level === "hva" && parentSlug) {
-                    setLevel("kunta");
-                    setSelected(null);
-                  }
-                  // Switching kunta → HVA at the kunta level: jump to
-                  // hva view of the same parent vp (when meaningful).
-                  if (
-                    next === "hva" &&
-                    level === "kunta" &&
-                    parentSlug &&
-                    hvaMap
-                  ) {
-                    const hvaCount = Object.values(hvaMap.hvaToVp).filter(
-                      (s) => s === parentSlug,
-                    ).length;
-                    if (hvaCount >= 2) {
-                      setLevel("hva");
-                      setSelected(null);
-                    }
-                  }
-                }}
-                visible={
-                  // Always visible at vp/kunta/hva levels; hidden at
-                  // country (vp drill happens via double-click — the
-                  // toggle controls *what* the next drill destination
-                  // becomes) — actually keep it visible at country
-                  // too so the user can preselect the destination.
-                  level !== "aa"
-                }
-                disabledReason={(() => {
-                  if (!parentSlug) return null;
-                  if (parentSlug === "hel" || parentSlug === "ahve") {
-                    return "Helsinki ja Ahvenanmaa: ei hyvinvointialueita";
-                  }
-                  return null;
-                })()}
               />
             </div>
           )}
@@ -2197,11 +2189,7 @@ function HvaToggle({
   return (
     <div
       style={{
-        position: "absolute",
-        right: 12,
-        top: 12,
-        zIndex: 5,
-        display: "flex",
+        display: "inline-flex",
         gap: 4,
         background: "var(--paper)",
         border: "var(--border-default) solid var(--line)",
@@ -2209,6 +2197,7 @@ function HvaToggle({
         padding: 3,
         boxShadow: "var(--shadow-soft)",
         opacity: disabled ? 0.5 : 1,
+        verticalAlign: "middle",
       }}
       title={disabledReason ?? "Vaihda kartan ryhmittelytaso"}
     >
