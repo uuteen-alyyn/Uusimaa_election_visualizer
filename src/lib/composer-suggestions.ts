@@ -291,7 +291,15 @@ export function buildSuggestions(
 
   if (activeField === "type") {
     for (const t of ELECTION_TYPES) {
-      const s = Math.max(score(q, t.label), score(q, t.short), score(q, t.id));
+      // When the query is empty, give every type a baseline score
+      // above the score-1 operators so all five fit in the
+      // (capped) result list. Otherwise rank by the search score.
+      // Without this, "Presidentinvaalit" — pushed last — drops
+      // past the maxResults cut.
+      const s =
+        q === ""
+          ? 50
+          : Math.max(score(q, t.label), score(q, t.short), score(q, t.id));
       push({
         id: `type-${t.id}`,
         kind: "type",
@@ -329,7 +337,7 @@ export function buildSuggestions(
       if (e.typeId === "pres" && e.round) {
         pool.push(`${e.year} ${e.round}`, `kierros ${e.round}`);
       }
-      let s = 0;
+      let s = q === "" ? 50 : 0;
       for (const str of pool) s = Math.max(s, score(q, str));
       // Only the year — round disambiguator for pres ("· I" / "· II")
       // appended for clarity since a year hosts two pres rounds.
@@ -367,7 +375,10 @@ export function buildSuggestions(
   } else if (activeField === "who") {
     if (whoMode === "party") {
       for (const p of PARTIES) {
-        const s = Math.max(score(q, p.name), score(q, p.abbr), score(q, p.id));
+        const s =
+          q === ""
+            ? 50
+            : Math.max(score(q, p.name), score(q, p.abbr), score(q, p.id));
         push({
           id: `party-${p.id}`,
           kind: "party",
