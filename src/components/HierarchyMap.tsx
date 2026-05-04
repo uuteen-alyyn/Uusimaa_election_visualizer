@@ -284,14 +284,17 @@ export function HierarchyMap({
           legend marker. */}
       {level === "vp"
         ? (() => {
-            const hel = regions.find((r) => r.id === "hel");
+            // vp ids in `regions` are 2-digit `code` values, not the
+            // slugs ("hel", "uus", …) — Helsinki is "01".
+            const HEL_ID = "01";
+            const hel = regions.find((r) => r.id === HEL_ID);
             if (!hel) return null;
-            const isSel = selected === "hel";
-            const isHover = hoverId === "hel";
+            const isSel = selected === HEL_ID;
+            const isHover = hoverId === HEL_ID;
             // Square in the Gulf of Finland (empty viewBox region).
             const sqX = 285;
-            const sqY = 612;
-            const sqSize = 16;
+            const sqY = 605;
+            const sqSize = 18;
             const sqCy = sqY + sqSize / 2;
             return (
               <g pointerEvents="auto">
@@ -311,25 +314,25 @@ export function HierarchyMap({
                   y={sqY}
                   width={sqSize}
                   height={sqSize}
-                  fill={getFill("hel")}
+                  fill={getFill(HEL_ID)}
                   stroke="var(--ink)"
-                  strokeWidth={isSel ? 1.6 : isHover ? 1.1 : 0.6}
+                  strokeWidth={isSel ? 1.8 : isHover ? 1.2 : 0.7}
                   style={{ cursor: "pointer", transition: "stroke-width 120ms" }}
-                  onClick={() => onPick?.("hel")}
-                  onDoubleClick={() => onZoomIn?.("hel")}
-                  onMouseEnter={() => setHoverId("hel")}
+                  onClick={() => onPick?.(HEL_ID)}
+                  onDoubleClick={() => onZoomIn?.(HEL_ID)}
+                  onMouseEnter={() => setHoverId(HEL_ID)}
                   onMouseLeave={() =>
-                    setHoverId((prev) => (prev === "hel" ? null : prev))
+                    setHoverId((prev) => (prev === HEL_ID ? null : prev))
                   }
                   role="button"
                   aria-label={
                     getTooltip
-                      ? getTooltip("hel", hel.label)
+                      ? getTooltip(HEL_ID, hel.label)
                       : "Helsinki"
                   }
                 >
                   <title>
-                    {getTooltip ? getTooltip("hel", hel.label) : "Helsinki"}
+                    {getTooltip ? getTooltip(HEL_ID, hel.label) : "Helsinki"}
                   </title>
                 </rect>
                 <text
