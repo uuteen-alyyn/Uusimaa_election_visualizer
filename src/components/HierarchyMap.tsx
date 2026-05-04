@@ -89,25 +89,31 @@ export function HierarchyMap({
     return { regions: list, viewBox: KUNTA_VIEWBOX };
   }, [geometry, level, parentSlug, aaFeatures]);
 
-  // Smart-label rule:
+  // Label-visibility rule:
   //   vp:    every region gets a label (only 13–14 regions)
-  //   kunta: largest ~28% by area, plus selected/hovered
-  //   aa:    all when count ≤ 25; otherwise hide persistent labels
-  //          (Helsinki has 167 aa — they collide on a sqrt-grid).
-  //          Selected/hovered still show via the hover-bg branch.
+  //   kunta: largest ~28 % by area, plus selected/hovered
+  //   aa:    ALWAYS show the shortened label inside every square —
+  //          the full name comes through the SVG <title> on hover.
   const labelable = useMemo(() => {
-    if (level === "vp") return new Set(regions.map((r) => r.id));
     if (level === "kunta") {
       const sorted = [...regions].sort((a, b) => (b.area || 0) - (a.area || 0));
       const keepN = Math.max(4, Math.ceil(sorted.length * 0.28));
       return new Set(sorted.slice(0, keepN).map((r) => r.id));
     }
-    // aa
-    if (regions.length <= 25) return new Set(regions.map((r) => r.id));
-    return new Set<string>();
+    // vp + aa: every region labelled.
+    return new Set(regions.map((r) => r.id));
   }, [regions, level]);
 
-  const labelSize = level === "aa" ? 8 : level === "kunta" ? 8.5 : 11;
+  // For aa, scale font to the grid density so dense kuntat (Helsinki,
+  // 167 squares) don't have the shortened label overflowing the cell.
+  const labelSize = (() => {
+    if (level === "vp") return 11;
+    if (level === "kunta") return 8.5;
+    // aa
+    if (regions.length > 100) return 6.5;
+    if (regions.length > 50) return 7.5;
+    return 8.5;
+  })();
 
   /** Shorten the on-map label so it fits inside a small grid cell.
    *  The full label (e.g. "091 001A Kruununhaka A") is preserved
