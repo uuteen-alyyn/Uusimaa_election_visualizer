@@ -20,13 +20,23 @@ import {
   type SelectorRecord,
   type Suggestion,
 } from "../lib/composer-suggestions";
-import type { ChipFields, FormulaToken, PartyId } from "../types/elections";
+import { chipElectionId } from "../lib/formula";
+import type {
+  Candidate,
+  ChipFields,
+  ElectionId,
+  FormulaToken,
+} from "../types/elections";
 
 interface FormulaComposerProps {
   tokens: FormulaToken[];
   setTokens: (next: FormulaToken[] | ((prev: FormulaToken[]) => FormulaToken[])) => void;
   selectors: SelectorRecord[];
   setSelectors: (next: SelectorRecord[] | ((prev: SelectorRecord[]) => SelectorRecord[])) => void;
+  /** Async lookup for candidates of a given election. Composer
+   *  triggers the fetch when the active chip's election resolves
+   *  and the user is on the "who" slot. */
+  loadCandidatesForElection?: (electionId: ElectionId) => Promise<Candidate[]>;
 }
 
 export function FormulaComposer({
@@ -34,6 +44,7 @@ export function FormulaComposer({
   setTokens,
   selectors,
   setSelectors,
+  loadCandidatesForElection,
 }: FormulaComposerProps): JSX.Element {
   const [value, setValue] = useState("");
   const [open, setOpen] = useState(false);
@@ -51,9 +62,34 @@ export function FormulaComposer({
     setIdx(0);
   }, [value, activeField]);
 
+  // Resolve the active chip's election (when type+year are both
+  // bound to concrete values) so we can offer candidate suggestions
+  // for the right race.
+  const activeElectionId = useMemo<ElectionId | null>(() => {
+    if (!activeChip || activeChip.kind !== "chip") return null;
+    if (activeField !== "who") return null;
+    return chipElectionId(activeChip.fields);
+  }, [activeChip, activeField]);
+
+  const [candidates, setCandidates] = useState<Candidate[]>([]);
+  useEffect(() => {
+    if (!activeElectionId || !loadCandidatesForElection) {
+      setCandidates([]);
+      return;
+    }
+    let cancelled = false;
+    void loadCandidatesForElection(activeElectionId).then((c) => {
+      if (!cancelled) setCandidates(c);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [activeElectionId, loadCandidatesForElection]);
+
   const suggestions = useMemo(
-    () => buildSuggestions(value, activeField, activeChip, selectors),
-    [value, activeField, activeChip, selectors],
+    () =>
+      buildSuggestions(value, activeField, activeChip, selectors, candidates),
+    [value, activeField, activeChip, selectors, candidates],
   );
 
   const focusInput = (): void => {
@@ -79,7 +115,7 @@ export function FormulaComposer({
         chip.fields.year = v.year;
         if (v.round) chip.fields.round = v.round;
       } else if (field === "selYear") chip.fields.selYear = val as string;
-      else if (field === "who") chip.fields.who = val as { party: PartyId };
+      else if (field === "who") chip.fields.who = val as ChipFields["who"];
       else if (field === "selWho") chip.fields.selWho = val as string;
 
       if (activeChip) next[next.length - 1] = chip;
@@ -429,9 +465,20 @@ function ChipPill({
   // Data chip
   const f = chip.fields;
   const hasSel = Boolean(f.selType || f.selYear || f.selWho);
-  const partyId = f.who && "party" in f.who ? f.who.party : null;
-  const bg = partyId ? `var(--p-${partyId})` : hasSel ? "#f4e6c3" : "#e9e2cf";
-  const color = partyId ? "#fff" : "var(--ink)";
+  // Pick the party color for both party chips and candidate chips
+  // (candidates carry their party affiliation), so the chip pill
+  // visually conveys "Haavisto = green" without the user needing
+  // to recall it.
+  const partyId =
+    f.who && "party" in f.who
+      ? f.who.party
+      : f.who && "candidate" in f.who
+        ? f.who.candidate.party
+        : null;
+  const knownParty =
+    partyId !== null && /^[a-z]+$/i.test(partyId) && !partyId.startsWith("_");
+  const bg = knownParty ? `var(--p-${partyId})` : hasSel ? "#f4e6c3" : "#e9e2cf";
+  const color = knownParty ? "#fff" : "var(--ink)";
   const border = hasSel ? "var(--ink)" : "var(--line)";
   const borderStyle = hasSel ? "dashed" : "solid";
   return (
@@ -506,6 +553,22 @@ function SuggestionGlyph({ s }: { s: Suggestion }): JSX.Element {
           borderColor: `var(--p-${pid})`,
         }}
       />
+    );
+  }
+  if (s.kind === "candidate") {
+    const pid = s.value.candidate.party;
+    return (
+      <span
+        style={{
+          ...box,
+          background: `var(--p-${pid})`,
+          borderColor: `var(--p-${pid})`,
+          color: "#fff",
+          fontWeight: 700,
+        }}
+      >
+        ●
+      </span>
     );
   }
   if (s.kind === "selector") {

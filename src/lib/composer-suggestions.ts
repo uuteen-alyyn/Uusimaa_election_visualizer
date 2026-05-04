@@ -5,10 +5,10 @@
  * Kept separate from the React component so the scoring + chip-state
  * logic stays unit-testable.
  *
- * Phase 3 (4/4) port deliberately drops the `candidate` suggestion
- * branch — fixtures don't carry candidate lists yet (see BACKLOG)
- * so offering candidate chips would silently produce no-data formulas.
- * Add back in Phase 4+ when candidate data lands.
+ * Candidate chips (`f.who.candidate`) are offered when the active
+ * chip's election is fully resolved (type + year, plus round for
+ * presidential) and the caller passes that election's candidate
+ * list via the `candidatesForElection` arg.
  */
 
 import {
@@ -19,6 +19,7 @@ import {
   PARTY_BY_ID,
 } from "../data/catalog";
 import type {
+  Candidate,
   ChipFields,
   ElectionTypeId,
   FormulaToken,
@@ -207,6 +208,7 @@ export type Suggestion =
   | (BaseSuggestion & { kind: "type"; action: "setField"; field: "type"; value: ElectionTypeId })
   | (BaseSuggestion & { kind: "year"; action: "setField"; field: "year"; value: { year: number; round?: 1 | 2 } })
   | (BaseSuggestion & { kind: "party"; action: "setField"; field: "who"; value: { party: PartyId } })
+  | (BaseSuggestion & { kind: "candidate"; action: "setField"; field: "who"; value: { candidate: { id: string; name: string; party: PartyId } } })
   | (BaseSuggestion & { kind: "selector"; action: "setField"; field: "selType" | "selYear" | "selWho"; value: string });
 
 const OP_NAMES: Record<"+" | "-" | "*" | "/", string> = {
@@ -223,6 +225,7 @@ export function buildSuggestions(
   activeField: ChipSlot,
   activeChip: FormulaToken | null,
   selectors: ReadonlyArray<SelectorRecord>,
+  candidatesForElection: ReadonlyArray<Candidate> | null = null,
   maxResults = 8,
 ): Suggestion[] {
   const q = query.trim();
@@ -355,12 +358,36 @@ export function buildSuggestions(
         score: s,
       });
     }
+    // Candidates from the chip's resolved election. The caller looks
+    // up the right list (by chipElectionId on the active chip's
+    // type+year+round) and passes it in. When the chip's election
+    // isn't fully resolved yet, candidatesForElection is null and
+    // we just don't surface candidate suggestions.
+    if (candidatesForElection && candidatesForElection.length > 0) {
+      for (const c of candidatesForElection) {
+        const s = score(q, c.name);
+        if (s <= 0 && q !== "") continue;
+        const partyAbbr = PARTY_BY_ID[c.party]?.abbr ?? c.party.replace(/^_/, "").toUpperCase();
+        push({
+          id: `cand-${c.id}`,
+          kind: "candidate",
+          label: c.name,
+          sub: `candidate · ${partyAbbr}`,
+          action: "setField",
+          field: "who",
+          value: { candidate: { id: c.id, name: c.name, party: c.party } },
+          // Empty-query: rank candidates below parties so the party
+          // shortcuts stay first; but matching queries score normally.
+          score: q === "" ? 20 : s,
+        });
+      }
+    }
     if (q === "" || q.startsWith("$")) {
       const name = pickNextSelectorName(selectors);
       push({
         id: `sel-who`,
         kind: "selector",
-        label: `$${name} — Party selector`,
+        label: `$${name} — Selector (puolue tai ehdokas)`,
         sub: "adds a Ledger control",
         action: "setField",
         field: "selWho",

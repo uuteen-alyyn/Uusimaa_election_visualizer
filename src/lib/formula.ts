@@ -7,15 +7,15 @@
  * pure and is easy to unit-test. Production callers wrap a pre-loaded
  * Map of `(regionId, electionId) → RegionResult` in a closure.
  *
- * Phase 3 first cut supports:
- *   - chip with `who.party` → vote share for that party at the
- *     chip's election
- *   - chip with no `who` → turnout at the chip's election
- *   - numeric literals, operators (+ − × ÷), parentheses
+ * Supported chip metrics:
+ *   - `who.party`     → party's vote share % at the chip's election
+ *   - `who.candidate` → candidate's vote share % (votes / total × 100)
+ *   - no `who`        → turnout at the chip's election
+ * Plus numeric literals, operators (+ − × ÷), parentheses.
  *
- * Not yet supported: candidate metric (fixtures don't have candidate
- * lists yet — see BACKLOG), `votes` metric (party-specific vote
- * counts; can be derived from `share × total` later).
+ * Candidate values rely on `RegionResult.candidates` being populated
+ * by the build-time prefetch (top 90 per region). Candidates outside
+ * the top 90 in a region resolve to `null` (no_data for that region).
  */
 
 import { ELECTION_BY_ID, PARTY_BY_ID } from "../data/catalog";
@@ -84,8 +84,12 @@ export function chipValue(
   if ("party" in who) {
     return result.shares[who.party] ?? 0;
   }
-  // who.candidate — Phase 3.x; signal as null so caller errors out
-  return null;
+  // who.candidate — return the candidate's vote share as a percentage.
+  // The fixture's `candidates` array is the top-N for that region;
+  // candidates outside the top fall through to no-data.
+  const cand = result.candidates?.find((c) => c.id === who.candidate.id);
+  if (!cand) return null;
+  return result.votes > 0 ? (cand.votes / result.votes) * 100 : 0;
 }
 
 /* ─── Evaluator (shunting-yard + RPN) ───────────────────────── */
@@ -121,9 +125,6 @@ export function evalFormula(
       const f = t.fields;
       if (f.selType || f.selYear || f.selWho) {
         return { ok: false, error: "unbound selector" };
-      }
-      if (f.who && "candidate" in f.who) {
-        return { ok: false, error: "candidate metric not yet supported" };
       }
       const v = chipValue(f, regionId, lookup);
       if (v === null) return { ok: false, error: "no data for chip" };

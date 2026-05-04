@@ -243,18 +243,44 @@ describe("evalFormula — error paths", () => {
     if (!r.ok) expect(r.error).toBe("no data for chip");
   });
 
-  it("rejects candidate metric chips", () => {
+  it("evaluates candidate metric as votes / total × 100", () => {
+    const withCand: RegionResult = {
+      ...HEL_2023,
+      candidates: [{ id: "c1", name: "Test Cand", party: "kok", votes: 10_000 }],
+    };
+    const localLookup: ResultLookup = (regionId, electionId) =>
+      regionId === "01" && electionId === "ek2023" ? withCand : null;
     const chip: FormulaToken = {
       kind: "chip",
       fields: {
         type: "ek",
         year: 2023,
-        who: { candidate: { id: "x", name: "A B", party: "kok" } },
+        who: { candidate: { id: "c1", name: "Test Cand", party: "kok" } },
       },
     };
-    const r = evalFormula([chip], "01", lookup);
+    const r = evalFormula([chip], "01", localLookup);
+    expect(r.ok).toBe(true);
+    if (r.ok) expect(r.value).toBeCloseTo(10, 5);
+  });
+
+  it("returns no-data error when the candidate isn't in the region's top-N", () => {
+    const withCands: RegionResult = {
+      ...HEL_2023,
+      candidates: [{ id: "other", name: "Other", party: "sdp", votes: 5000 }],
+    };
+    const localLookup: ResultLookup = (regionId, electionId) =>
+      regionId === "01" && electionId === "ek2023" ? withCands : null;
+    const chip: FormulaToken = {
+      kind: "chip",
+      fields: {
+        type: "ek",
+        year: 2023,
+        who: { candidate: { id: "missing", name: "Missing", party: "kok" } },
+      },
+    };
+    const r = evalFormula([chip], "01", localLookup);
     expect(r.ok).toBe(false);
-    if (!r.ok) expect(r.error).toMatch(/candidate metric/);
+    if (!r.ok) expect(r.error).toMatch(/no data/);
   });
 });
 

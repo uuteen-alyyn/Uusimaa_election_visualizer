@@ -15,7 +15,12 @@ import { useMemo, useState } from "react";
 import { FormulaComposer } from "./FormulaComposer";
 import { evalFormula, formulaSummary } from "../lib/formula";
 import type { SelectorRecord } from "../lib/composer-suggestions";
-import type { FormulaToken, Workflow } from "../types/elections";
+import type {
+  Candidate,
+  ElectionId,
+  FormulaToken,
+  Workflow,
+} from "../types/elections";
 
 interface WorkflowBuilderProps {
   /** When `initial.id` is set, the modal is in edit mode. */
@@ -23,6 +28,10 @@ interface WorkflowBuilderProps {
   onSave: (w: Workflow) => void;
   onUpdate?: (w: Workflow) => void;
   onClose: () => void;
+  /** Async lookup for candidates of a given election — used by the
+   *  composer to surface candidate chip suggestions once a chip's
+   *  type+year (and round, for pres) are resolved. */
+  loadCandidatesForElection?: (electionId: ElectionId) => Promise<Candidate[]>;
 }
 
 export function WorkflowBuilder({
@@ -30,6 +39,7 @@ export function WorkflowBuilder({
   onSave,
   onUpdate,
   onClose,
+  loadCandidatesForElection,
 }: WorkflowBuilderProps): JSX.Element {
   const isEdit = Boolean(initial?.id);
   const [tokens, setTokens] = useState<FormulaToken[]>(initial?.formula ?? []);
@@ -185,6 +195,7 @@ export function WorkflowBuilder({
           setTokens={setTokens}
           selectors={selectors}
           setSelectors={setSelectors}
+          loadCandidatesForElection={loadCandidatesForElection}
         />
 
         {/* Selector friendly names */}

@@ -8,6 +8,7 @@
 
 import type {
   AreaLevel,
+  Candidate,
   ElectionId,
   RegionId,
   RegionResult,
@@ -44,6 +45,12 @@ export interface ElectionDataSource {
     parentId: RegionId | null,
     electionId: ElectionId,
   ): Promise<RegionResult[]>;
+
+  /** Country-level top candidates for an election — vp-level
+   *  candidate rows merged by id and re-sorted by total votes.
+   *  Used by the formula composer to offer per-candidate chips.
+   *  Returns `[]` when the election has no candidate data. */
+  listCandidates(electionId: ElectionId): Promise<Candidate[]>;
 }
 
 /**
@@ -115,5 +122,37 @@ export class LocalFixtureSource implements ElectionDataSource {
     }
     // "maa": country aggregate is computed by the UI from vp rows.
     return [];
+  }
+
+  private candidateCache = new Map<ElectionId, Candidate[]>();
+
+  async listCandidates(electionId: ElectionId): Promise<Candidate[]> {
+    const cached = this.candidateCache.get(electionId);
+    if (cached) return cached;
+    const fixture = await this.load(electionId);
+    if (fixture.status === "no_data" || !fixture.areas) {
+      this.candidateCache.set(electionId, []);
+      return [];
+    }
+    // Walk vp-level rows (kunta + aa rows are subsets of those
+    // candidates; merging vp lists is enough). Sum votes per
+    // candidate id, sort descending, cap at 200 — generous enough
+    // that the composer suggestion list won't run out before the
+    // user types a couple of letters.
+    const byId = new Map<string, Candidate>();
+    for (const a of fixture.areas) {
+      if (!/^\d{2}$/.test(a.regionId)) continue;
+      if (!a.candidates) continue;
+      for (const c of a.candidates) {
+        const existing = byId.get(c.id);
+        if (existing) existing.votes += c.votes;
+        else byId.set(c.id, { ...c });
+      }
+    }
+    const list = Array.from(byId.values())
+      .sort((a, b) => b.votes - a.votes)
+      .slice(0, 200);
+    this.candidateCache.set(electionId, list);
+    return list;
   }
 }

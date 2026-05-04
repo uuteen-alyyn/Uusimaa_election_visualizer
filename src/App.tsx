@@ -1213,6 +1213,7 @@ export function App(): JSX.Element {
             setBuilderOpen(false);
             setEditingWorkflow(null);
           }}
+          loadCandidatesForElection={(id) => source.listCandidates(id)}
         />
       ) : null}
 
