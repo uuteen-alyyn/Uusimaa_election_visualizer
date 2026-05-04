@@ -385,54 +385,41 @@ export function FormulaComposer({
           position: "relative",
         }}
       >
+        {/* Chips + input share one flex row. The input is rendered
+            ONCE in a fixed DOM position (after the chip map), and
+            `order` slots it visually wherever the cursor sits. This
+            keeps the same `<input>` element mounted across cursor
+            moves so it doesn't lose focus mid-navigation — the
+            previous "render input inside the map" approach killed
+            focus on every ArrowLeft press. */}
         {tokens.map((t, i) => (
-          <span key={`group-${i}`} style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
-            {/* Render the input slot wherever the cursor index says
-                — before the chip when cursor === i. */}
-            {i === cursor ? (
-              <CursorInput
-                inputRef={inputRef}
-                value={value}
-                placeholder={isEmpty ? 'Kirjoita — esim. "eduskuntavaalit"' : fieldPrompt}
-                onChangeValue={(v) => {
-                  setValue(v);
-                  setOpen(true);
-                }}
-                onFocus={() => setOpen(true)}
-                onBlur={() => setTimeout(() => setOpen(false), 150)}
-                onKeyDown={onKeyDown}
-                inline
-              />
-            ) : null}
-            <ChipPill
-              chip={t}
-              onClick={() => {
-                // Click on a chip drops the cursor in front of it
-                // so the user can insert / replace / backspace at
-                // that position without rebuilding from the end.
-                setCursor(i);
-                setValue("");
-                setOpen(true);
-                focusInput();
-              }}
-              onRemove={() => removeTokenAt(i)}
-            />
-          </span>
-        ))}
-        {cursor === tokens.length ? (
-          <CursorInput
-            inputRef={inputRef}
-            value={value}
-            placeholder={isEmpty ? 'Kirjoita — esim. "eduskuntavaalit"' : fieldPrompt}
-            onChangeValue={(v) => {
-              setValue(v);
+          <ChipPill
+            key={`chip-${i}`}
+            chip={t}
+            order={i < cursor ? i : i + 1}
+            onClick={() => {
+              setCursor(i);
+              setValue("");
               setOpen(true);
+              focusInput();
             }}
-            onFocus={() => setOpen(true)}
-            onBlur={() => setTimeout(() => setOpen(false), 150)}
-            onKeyDown={onKeyDown}
+            onRemove={() => removeTokenAt(i)}
           />
-        ) : null}
+        ))}
+        <CursorInput
+          inputRef={inputRef}
+          value={value}
+          placeholder={isEmpty ? 'Kirjoita — esim. "eduskuntavaalit"' : fieldPrompt}
+          onChangeValue={(v) => {
+            setValue(v);
+            setOpen(true);
+          }}
+          onFocus={() => setOpen(true)}
+          onBlur={() => setTimeout(() => setOpen(false), 150)}
+          onKeyDown={onKeyDown}
+          inline={cursor < tokens.length}
+          order={cursor}
+        />
 
         {open && (suggestions.length > 0 || candidatesAvailable) ? (
           <div
@@ -554,6 +541,7 @@ function ChipPill({
   chip,
   onClick,
   onRemove,
+  order,
 }: {
   chip: FormulaToken;
   /** Click anywhere on the chip body — drops the cursor in front
@@ -561,6 +549,10 @@ function ChipPill({
    *  button stops propagation so it doesn't double-fire. */
   onClick?: () => void;
   onRemove?: () => void;
+  /** CSS flex `order`. The composer renders chips + the input all
+   *  in one flex row; `order` is how the input visually slots in at
+   *  the cursor position without changing its DOM position. */
+  order?: number;
 }): JSX.Element {
   const clickHandler = onClick
     ? {
@@ -570,9 +562,9 @@ function ChipPill({
           e.preventDefault();
           onClick();
         },
-        style: { cursor: "pointer" as const },
+        style: { cursor: "pointer" as const, order },
       }
-    : { style: {} };
+    : { style: { order } };
   if (chip.kind === "op") {
     return (
       <span
@@ -689,7 +681,9 @@ function ChipPill({
 
 /** Cursor-position-aware input. Renders inline (squished narrow)
  *  when sitting between chips, and at the trailing end fills the
- *  remaining row so the placeholder stays readable. */
+ *  remaining row so the placeholder stays readable. The wrapper
+ *  carries a flex `order` so the same DOM-stable input can be
+ *  visually slotted between chips when the cursor moves. */
 function CursorInput({
   inputRef,
   value,
@@ -699,6 +693,7 @@ function CursorInput({
   onBlur,
   onKeyDown,
   inline = false,
+  order,
 }: {
   inputRef: React.RefObject<HTMLInputElement>;
   value: string;
@@ -708,6 +703,7 @@ function CursorInput({
   onBlur: () => void;
   onKeyDown: (e: React.KeyboardEvent<HTMLInputElement>) => void;
   inline?: boolean;
+  order?: number;
 }): JSX.Element {
   return (
     <span
@@ -723,6 +719,7 @@ function CursorInput({
         borderLeft: inline ? "1.5px solid var(--ink)" : "none",
         marginLeft: inline ? 2 : 0,
         paddingLeft: inline ? 2 : 0,
+        order,
       }}
     >
       <input
