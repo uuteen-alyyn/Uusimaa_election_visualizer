@@ -51,7 +51,9 @@ import {
 
 const NUM_FI = new Intl.NumberFormat("fi-FI");
 import {
+  chipValue as chipValueDirect,
   evalFormula,
+  findLastChip,
   metricForFraming,
   formulaRange as computeFormulaRange,
   formulaSummary,
@@ -649,9 +651,9 @@ export function App(): JSX.Element {
       formulaRegionIds,
       formulaLookup,
       framing,
-      framing === "vsSelected" ? selected : null,
+      null,
     );
-  }, [mode, resolvedFormula, formulaRegionIds, formulaLookup, framing, selected]);
+  }, [mode, resolvedFormula, formulaRegionIds, formulaLookup, framing]);
 
   /* ─── Adaptive support / change ranges across visible regions ── */
 
@@ -747,6 +749,24 @@ export function App(): JSX.Element {
     if (mode !== "formula" || resolvedFormula.length === 0) return new Map<string, number>();
     const metric = metricForFraming(framing);
     const m = new Map<string, number>();
+
+    // vsSelected = relative change of the formula vs the last chip's
+    // value, per region. Doesn't need a region selection — for a
+    // `kok2023 − kok2019` formula, the result reads as "% change in
+    // absolute votes between the two elections" per region.
+    if (framing === "vsSelected") {
+      const lastChip = findLastChip(resolvedFormula);
+      if (!lastChip) return m;
+      for (const id of formulaRegionIds) {
+        const r = evalFormula(resolvedFormula, id, formulaLookup, metric);
+        if (!r.ok) continue;
+        const base = chipValueDirect(lastChip.fields, id, formulaLookup, metric);
+        if (base == null || base === 0) continue;
+        m.set(id, (r.value / base) * 100);
+      }
+      return m;
+    }
+
     for (const id of formulaRegionIds) {
       const r = evalFormula(resolvedFormula, id, formulaLookup, metric);
       if (r.ok) m.set(id, r.value);
@@ -755,14 +775,9 @@ export function App(): JSX.Element {
       const sum = [...m.values()].reduce((s, v) => s + v, 0);
       if (sum !== 0) for (const [k, v] of m) m.set(k, (v / sum) * 100);
       else for (const [k] of m) m.set(k, 0);
-    } else if (framing === "vsSelected" && selected) {
-      const base = m.get(selected);
-      if (base != null && base !== 0) {
-        for (const [k, v] of m) m.set(k, ((v - base) / Math.abs(base)) * 100);
-      }
     }
     return m;
-  }, [mode, resolvedFormula, formulaRegionIds, formulaLookup, framing, selected]);
+  }, [mode, resolvedFormula, formulaRegionIds, formulaLookup, framing]);
 
   /* ─── Map fill ──────────────────────────────────────────── */
 
@@ -1263,7 +1278,7 @@ export function App(): JSX.Element {
                 />
               ) : null}
               <ParamLabel>Skaalaus</ParamLabel>
-              <FramingTabs value={framing} onChange={setFraming} canVsSelected={Boolean(selected)} />
+              <FramingTabs value={framing} onChange={setFraming} />
               <span
                 style={{ width: 1, height: 22, background: "var(--hair)", margin: "0 4px" }}
               />
@@ -1366,6 +1381,8 @@ export function App(): JSX.Element {
           disabled={dataLoading}
         />
       </div>
+
+      <HelpBox />
 
       <main className="dashboard" id="map-area">
         <div
@@ -1667,11 +1684,9 @@ function ParamLabel({ children }: { children: React.ReactNode }): JSX.Element {
 function FramingTabs({
   value,
   onChange,
-  canVsSelected,
 }: {
   value: FormulaFraming;
   onChange: (f: FormulaFraming) => void;
-  canVsSelected: boolean;
 }): JSX.Element {
   // Three buttons: vote count (absolute), percentage points
   // (absolute share %), and relative change vs the selected region.
@@ -1681,52 +1696,41 @@ function FramingTabs({
     id: FormulaFraming;
     label: string;
     title: string;
-    needsSel?: boolean;
   }> = [
     {
       id: "absVotes",
       label: "Äänimäärä",
-      title: "Värittää alueet kaavan tuottaman äänimäärän mukaan",
+      title:
+        "Kaavan arvo äänimääränä, esim. kok2023 − kok2019 antaa äänten erotuksen.",
     },
     {
       id: "absolute",
       label: "Prosenttiyksikköä",
-      title: "Värittää alueet kaavan tuottaman %-arvon mukaan",
+      title:
+        "Kaavan arvo prosenttiyksiköissä, esim. kok2023 − kok2019 antaa kannatuksen muutoksen %-yksikköinä.",
     },
     {
       id: "vsSelected",
       label: "Suhteellinen muutos %",
       title:
-        "Värittää alueet erona valittuun alueeseen, %. Klikkaa ensin alue kartalta — se on vertailukohta.",
-      needsSel: true,
+        "Kaavan arvo prosenttina kaavan viimeisen termin äänimäärästä — esim. kok2023 − kok2019 antaa muutoksen prosentteina vuoden 2019 äänimäärästä.",
     },
   ];
   return (
     <div style={{ display: "flex", gap: 4 }}>
-      {opts.map((opt) => {
-        const disabled = (opt.needsSel ?? false) && !canVsSelected;
-        return (
-          <span
-            key={opt.id}
-            className={"pill " + (value === opt.id ? "on" : "")}
-            onClick={() => !disabled && onChange(opt.id)}
-            role="button"
-            tabIndex={0}
-            title={
-              disabled
-                ? "Klikkaa ensin alue kartalta — kaavan arvoa verrataan siihen."
-                : opt.title
-            }
-            style={{
-              cursor: disabled ? "not-allowed" : "pointer",
-              fontSize: 12,
-              opacity: disabled ? 0.4 : 1,
-            }}
-          >
-            {opt.label}
-          </span>
-        );
-      })}
+      {opts.map((opt) => (
+        <span
+          key={opt.id}
+          className={"pill " + (value === opt.id ? "on" : "")}
+          onClick={() => onChange(opt.id)}
+          role="button"
+          tabIndex={0}
+          title={opt.title}
+          style={{ cursor: "pointer", fontSize: 12 }}
+        >
+          {opt.label}
+        </span>
+      ))}
     </div>
   );
 }
@@ -2219,6 +2223,142 @@ function HvaToggle({
           {m === "kunta" ? "Kunta" : "Hyvinvointialue"}
         </span>
       ))}
+    </div>
+  );
+}
+
+/* ─── Käyttöohjeet (help / instructions) ────────────────────── */
+
+/** Collapsible help box rendered under the Jaa linkki + Lataa
+ *  kuvana row. Covers map navigation, custom-formula building,
+ *  export buttons, and the HVA toggle so a first-time visitor can
+ *  orient themselves without leaving the page. */
+function HelpBox(): JSX.Element {
+  const [open, setOpen] = useState(false);
+  return (
+    <div style={{ marginTop: 8, maxWidth: 380 }}>
+      <span
+        className="pill"
+        role="button"
+        tabIndex={0}
+        aria-expanded={open}
+        onClick={() => setOpen((o) => !o)}
+        onKeyDown={(e) => {
+          if (e.key === "Enter" || e.key === " ") {
+            e.preventDefault();
+            setOpen((o) => !o);
+          }
+        }}
+        style={{
+          cursor: "pointer",
+          fontSize: 12,
+          display: "inline-flex",
+          alignItems: "center",
+          gap: 6,
+        }}
+      >
+        <span style={{ fontFamily: "var(--font-mono)", fontSize: 10 }}>
+          {open ? "▾" : "▸"}
+        </span>
+        Käyttöohjeet
+      </span>
+      {open ? (
+        <div
+          className="box soft"
+          style={{
+            marginTop: 8,
+            padding: "10px 14px",
+            fontSize: 12.5,
+            lineHeight: 1.55,
+            background: "var(--paper)",
+          }}
+        >
+          <HelpSection title="Kartan navigointi">
+            <li>
+              <b>Klikkaus</b> valitsee alueen — tulokset näkyvät
+              oikealla.
+            </li>
+            <li>
+              <b>Kaksoisklikkaus</b> porautuu alueen sisään: vaalipiiri →
+              kunta → äänestysalue.
+            </li>
+            <li>
+              Näppäimistöllä: <b>Tab</b>/<b>nuolet</b> siirtyvät alueesta
+              toiseen, <b>Shift+Tab</b> toiseen suuntaan,{" "}
+              <b>Enter</b> porautuu sisään, <b>Esc</b> poistaa fokuksen.
+            </li>
+            <li>
+              Oikean yläkulman <b>Kunta / Hyvinvointialue</b> -valitsin
+              ryhmittelee kunnat hyvinvointialueittain.
+            </li>
+          </HelpSection>
+          <HelpSection title="Työnkulut + mukautettu kaava">
+            <li>
+              Ylärivin pillerit ovat valmiit työnkulut: suurin puolue,
+              kannatus %, äänimäärä, kannatuksen muutos.
+            </li>
+            <li>
+              <b>+ Mukautettu</b> avaa kaavan rakentajan — voit verrata
+              esim. <i>Vihreät 2023 − Vihreät 2019</i> tai yksittäisen
+              ehdokkaan kannatusta puolueensa kannatukseen.
+            </li>
+            <li>
+              <b>Skaalaus</b>-painikkeet: <i>Äänimäärä</i> näyttää
+              kaavan arvon raakana äänimääränä, <i>Prosenttiyksikköä</i>{" "}
+              %-yksikköinä ja <i>Suhteellinen muutos %</i> kaavan
+              viimeiseen termiin verrattuna prosentteina.
+            </li>
+            <li>
+              <i>Älä huomioi Ahvenanmaata</i> jättää Ahvenanmaan
+              väriliukuman ulkopuolelle, jotta muut alueet erottuvat
+              kunnolla.
+            </li>
+          </HelpSection>
+          <HelpSection title="Jakaminen + tallennus">
+            <li>
+              <b>Jaa linkki</b> kopioi nykyisen näkymän osoitteen
+              leikepöydälle — toinen käyttäjä saa saman näkymän
+              avaamalla linkin.
+            </li>
+            <li>
+              <b>Lataa kuvana</b> tarjoaa kolme vaihtoehtoa:{" "}
+              <i>Karttakuva (SVG)</i> vektoriksi,{" "}
+              <i>Karttakuva (PNG)</i> rasteriksi tai{" "}
+              <i>Koko näkymä (PNG)</i> sisältäen ledger-paneelin.
+            </li>
+            <li>
+              Mukautetut kaavat tallentuvat selaimeen — vain sinä näet
+              omat kaavasi, eivät muut sivuston käyttäjät.
+            </li>
+          </HelpSection>
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+function HelpSection({
+  title,
+  children,
+}: {
+  title: string;
+  children: React.ReactNode;
+}): JSX.Element {
+  return (
+    <div style={{ marginBottom: 8 }}>
+      <div
+        style={{
+          fontSize: 10,
+          opacity: 0.6,
+          textTransform: "uppercase",
+          letterSpacing: 0.5,
+          marginBottom: 4,
+          fontWeight: 500,
+        }}
+      >
+        {title}
+      </div>
+      <ul style={{ margin: 0, paddingLeft: 18 }}>{children}</ul>
     </div>
   );
 }

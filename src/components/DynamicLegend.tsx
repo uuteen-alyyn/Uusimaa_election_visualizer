@@ -387,7 +387,7 @@ function FormulaBody({
           : framing === "share"
             ? " · % näkyvistä"
             : framing === "vsSelected"
-              ? " · vs valittu"
+              ? " · suht. muutos %"
               : " · prosenttiyksikköä"}
       </Caption>
       {summary ? (

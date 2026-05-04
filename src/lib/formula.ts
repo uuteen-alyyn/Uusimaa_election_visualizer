@@ -220,15 +220,17 @@ interface Entry {
 /** Re-scale a list of evaluated values according to the framing
  *  mode. Pure — no side effects.
  *
- *  `absVotes` and `absolute` differ only in chip metric (caller
- *  picks `"votes"` vs `"share"`); both leave evaluator output
- *  alone. `share` rescales to a region's % of the visible total;
- *  `vsSelected` rescales as a relative change vs the selected
- *  region. */
+ *  `absVotes` and `absolute` leave evaluator output alone (the
+ *  metric is what differs upstream). `share` rescales to a region's
+ *  % of the visible total. `vsSelected` is **not** handled here —
+ *  it's per-region relative-change against the last chip's value
+ *  and needs the chip evaluator + per-region baselines, which
+ *  applyFraming doesn't have. The caller (evalAcrossRegions)
+ *  handles vsSelected directly. */
 export function applyFraming(
   entries: Entry[],
   framing: FormulaFraming,
-  framingRef: string | null = null,
+  _framingRef: string | null = null,
 ): Entry[] {
   if (framing === "absolute" || framing === "absVotes") return entries;
   if (framing === "share") {
@@ -236,18 +238,39 @@ export function applyFraming(
     if (sum === 0) return entries.map((e) => ({ ...e, v: 0 }));
     return entries.map((e) => ({ ...e, v: (e.v / sum) * 100 }));
   }
-  // vsSelected
-  const ref = framingRef ? entries.find((e) => e.id === framingRef) : null;
-  const base = ref ? ref.v : 0;
-  if (base === 0) return entries.map((e) => ({ ...e, v: 0 }));
-  return entries.map((e) => ({ ...e, v: ((e.v - base) / Math.abs(base)) * 100 }));
+  // vsSelected falls through unchanged — evalAcrossRegions returns
+  // already-scaled per-region values for that framing.
+  return entries;
 }
 
-/** Map a framing to the chip metric it expects. `absVotes` needs
- *  the chip evaluator to return raw vote counts; everything else
- *  uses share %. */
+/** Map a framing to the chip metric it expects.
+ *
+ *  - `absVotes`   → vote counts.
+ *  - `vsSelected` → vote counts. The "Suhteellinen muutos %"
+ *                   framing compares two terms in vote-space —
+ *                   e.g. for a `kok 2023 − kok 2019` formula,
+ *                   the result is `(votes_2023 − votes_2019) /
+ *                   votes_2019 × 100`, the natural "% change in
+ *                   absolute votes" between the two elections.
+ *  - everything else → vote-share % (the original metric). */
 export function metricForFraming(framing: FormulaFraming): ChipMetric {
-  return framing === "absVotes" ? "votes" : "share";
+  return framing === "absVotes" || framing === "vsSelected"
+    ? "votes"
+    : "share";
+}
+
+/** Return the last chip token in the formula (or null if none). The
+ *  Suhteellinen muutos framing uses this chip's per-region value as
+ *  the denominator: for `A − B`, the last chip is `B`, so
+ *  `(A − B) / B × 100` reads as "percent change from B to A". */
+export function findLastChip(
+  tokens: FormulaToken[],
+): (FormulaToken & { kind: "chip" }) | null {
+  for (let i = tokens.length - 1; i >= 0; i--) {
+    const t = tokens[i]!;
+    if (t.kind === "chip") return t;
+  }
+  return null;
 }
 
 /** Evaluate the formula across a list of regions, returning framed
@@ -263,6 +286,24 @@ export function evalAcrossRegions(
   framingRef: string | null = null,
 ): Entry[] {
   const metric = metricForFraming(framing);
+
+  // vsSelected = per-region relative change of the formula vs the
+  // last chip's value. Used to show "% change between two votes
+  // counts" for two-term diff formulas like `A − B`.
+  if (framing === "vsSelected") {
+    const lastChip = findLastChip(tokens);
+    if (!lastChip) return [];
+    const out: Entry[] = [];
+    for (const id of regionIds) {
+      const r = evalFormula(tokens, id, lookup, metric);
+      if (!r.ok) continue;
+      const base = chipValue(lastChip.fields, id, lookup, metric);
+      if (base == null || base === 0) continue;
+      out.push({ id, v: (r.value / base) * 100 });
+    }
+    return out;
+  }
+
   const raw: Entry[] = [];
   for (const id of regionIds) {
     const r = evalFormula(tokens, id, lookup, metric);

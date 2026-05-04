@@ -124,7 +124,7 @@ function FormulaValueBlock({
       : framing === "share"
         ? "% näkyvistä yhteensä"
         : framing === "vsSelected"
-          ? "vs valittu alue"
+          ? "% kaavan viimeisestä termistä"
           : "prosenttiyksikköä";
 
   return (

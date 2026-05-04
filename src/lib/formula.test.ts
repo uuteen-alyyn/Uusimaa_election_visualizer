@@ -304,19 +304,12 @@ describe("applyFraming", () => {
     expect(sum).toBeCloseTo(100, 5);
   });
 
-  it("vsSelected expresses each entry as % difference from the ref", () => {
-    const out = applyFraming(entries, "vsSelected", "02");
-    // ref = 30; (10-30)/30*100 = -66.67; (30-30)/30*100 = 0; (60-30)/30*100 = 100
-    expect(out[0]!.v).toBeCloseTo(-66.67, 1);
-    expect(out[1]!.v).toBeCloseTo(0, 5);
-    expect(out[2]!.v).toBeCloseTo(100, 5);
-  });
-
-  it("vsSelected returns zeros when ref is missing or zero", () => {
-    const all0 = applyFraming([{ id: "x", v: 5 }], "vsSelected", "y");
-    expect(all0[0]!.v).toBe(0);
-    const refZero = applyFraming([{ id: "z", v: 0 }, { id: "w", v: 5 }], "vsSelected", "z");
-    expect(refZero.every((e) => e.v === 0)).toBe(true);
+  it("vsSelected is now a no-op at applyFraming level (handled in evalAcrossRegions)", () => {
+    // vsSelected = per-region relative change vs the formula's last
+    // chip's value; that needs the chip evaluator + region lookup,
+    // so applyFraming leaves entries untouched and the upstream
+    // evalAcrossRegions returns already-scaled values.
+    expect(applyFraming(entries, "vsSelected")).toEqual(entries);
   });
 });
 
