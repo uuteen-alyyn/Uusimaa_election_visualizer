@@ -120,6 +120,12 @@ export interface Workflow {
    *  saver leave themselves a note about what the formula means
    *  ("Vihreät yliedustus presidentinvaalin pohjalta", etc.). */
   description?: string;
+  /** Custom-formula option: skip Ahvenanmaa when computing the
+   *  visible-region range that scales the color ramp. Ahvenanmaa
+   *  has no votes for mainland parties, which collapses most ramps
+   *  into one bucket otherwise. Defaults to `true` for new custom
+   *  workflows. */
+  excludeAhvenanmaa?: boolean;
   /** Marks the four immutable built-ins. */
   builtin?: boolean;
 }

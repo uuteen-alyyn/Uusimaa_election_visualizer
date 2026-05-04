@@ -49,6 +49,13 @@ export function WorkflowBuilder({
   const [tokens, setTokens] = useState<FormulaToken[]>(initial?.formula ?? []);
   const [name, setName] = useState<string>(initial?.label ?? "");
   const [description, setDescription] = useState<string>(initial?.description ?? "");
+  // Default to true for new custom workflows: Ahvenanmaa breaks
+  // most adaptive ramps because it has no votes for the mainland
+  // parties. Existing workflows that already opted into including
+  // it (false) keep that choice on edit.
+  const [excludeAhvenanmaa, setExcludeAhvenanmaa] = useState<boolean>(
+    initial?.excludeAhvenanmaa ?? true,
+  );
   const [selectors, setSelectors] = useState<SelectorRecord[]>(
     () => deriveSelectorsFromTokens(initial?.formula ?? []),
   );
@@ -89,6 +96,7 @@ export function WorkflowBuilder({
     const trimmedDesc = description.trim();
     const descField =
       trimmedDesc.length > 0 ? { description: trimmedDesc } : {};
+    const ahveField = { excludeAhvenanmaa };
     if (isEdit && initial?.id && onUpdate) {
       onUpdate({
         id: initial.id,
@@ -98,6 +106,7 @@ export function WorkflowBuilder({
         formula: tokens,
         selectorLabels,
         ...descField,
+        ...ahveField,
       });
     } else {
       onSave({
@@ -108,6 +117,7 @@ export function WorkflowBuilder({
         formula: tokens,
         selectorLabels,
         ...descField,
+        ...ahveField,
       });
     }
     onClose();
@@ -234,6 +244,33 @@ export function WorkflowBuilder({
           />
           <div style={{ fontSize: 10, opacity: 0.55, marginTop: 4, fontStyle: "italic" }}>
             Valinnainen — näkyy Ledger-paneelissa kaavan arvon vieressä.
+          </div>
+        </div>
+
+        {/* Älä huomioi Ahvenanmaata — Ahvenanmaa has no votes for
+            mainland parties, so including it collapses most ramps. */}
+        <div style={{ marginBottom: 14 }}>
+          <label
+            style={{
+              display: "inline-flex",
+              alignItems: "center",
+              gap: 8,
+              cursor: "pointer",
+              fontSize: 13,
+            }}
+          >
+            <input
+              type="checkbox"
+              checked={excludeAhvenanmaa}
+              onChange={(e) => setExcludeAhvenanmaa(e.target.checked)}
+              style={{ accentColor: "var(--ink)" }}
+            />
+            <span>Älä huomioi Ahvenanmaata</span>
+          </label>
+          <div style={{ fontSize: 10, opacity: 0.55, marginTop: 4, fontStyle: "italic" }}>
+            Ahvenanmaalla ei ole ääniä mantereen puolueille — sen
+            mukaan ottaminen romahduttaa väriliukuman muille alueille.
+            Suositus: pidä päällä.
           </div>
         </div>
 

@@ -41,7 +41,7 @@ import {
 import { loadGeometry, type ProjectedGeometry } from "./data/geometry";
 
 import { aggregateRegions } from "./lib/aggregate";
-import { fillForRegion } from "./lib/color-ramps";
+import { fillForRegion, NODATA_FILL } from "./lib/color-ramps";
 import { makeAanestysalueet, makeHvaFeatures } from "./data/geometry";
 import {
   downloadDashboardPng,
@@ -331,6 +331,13 @@ export function App(): JSX.Element {
    *  alternative for the current vp (Helsinki single-kunta + own
    *  HVA, Ahvenanmaa no HVA at all). */
   const [viewMode, setViewMode] = useState<"kunta" | "hva">("kunta");
+  /** Custom-formula option: skip Ahvenanmaa from the visible-region
+   *  range. Ahvenanmaa has no votes for mainland parties, so
+   *  including it collapses most adaptive ramps into the lightest
+   *  bucket. Default true; flipped when applying a saved workflow
+   *  with `excludeAhvenanmaa` set, and editable via the runtime
+   *  toggle in formula mode. */
+  const [excludeAhvenanmaa, setExcludeAhvenanmaa] = useState<boolean>(true);
   /** kunta → HVA mapping loaded once from /data/kunta-hva.json. Null
    *  while the fetch is in-flight or if the file is missing (older
    *  deploy). */
@@ -496,6 +503,10 @@ export function App(): JSX.Element {
           autoDefaultBindings(tokens, w.defaultBindings ?? prev),
         );
         setAppliedSelectorLabels(w.selectorLabels ?? {});
+        // Honour the saved per-workflow Ahvenanmaa preference when
+        // the field is present; default to "exclude" otherwise so
+        // legacy saved workflows still get the safer ramp.
+        setExcludeAhvenanmaa(w.excludeAhvenanmaa ?? true);
       } else {
         setAppliedSelectorLabels({});
       }
@@ -619,16 +630,28 @@ export function App(): JSX.Element {
     return [];
   }, [geometry, level, parentSlug, hvaResults, aaResults]);
 
+  /** Region ids to feed formulaRange / formulaValueByRegion. When
+   *  the user has the "Älä huomioi Ahvenanmaata" toggle on (default
+   *  for custom formulas), drop the Ahvenanmaa vp at country view
+   *  so the range scales to the rest of the map. At kunta / hva /
+   *  aa drill-downs Ahvenanmaa is typically already off-screen, so
+   *  the filter is a no-op there. */
+  const formulaRegionIds = useMemo<string[]>(() => {
+    if (!excludeAhvenanmaa) return visibleRegionIds;
+    if (level === "vp") return visibleRegionIds.filter((id) => id !== "05");
+    return visibleRegionIds;
+  }, [visibleRegionIds, excludeAhvenanmaa, level]);
+
   const formulaRange = useMemo(() => {
     if (mode !== "formula" || resolvedFormula.length === 0) return null;
     return computeFormulaRange(
       resolvedFormula,
-      visibleRegionIds,
+      formulaRegionIds,
       formulaLookup,
       framing,
       framing === "vsSelected" ? selected : null,
     );
-  }, [mode, resolvedFormula, visibleRegionIds, formulaLookup, framing, selected]);
+  }, [mode, resolvedFormula, formulaRegionIds, formulaLookup, framing, selected]);
 
   /* ─── Adaptive support / change ranges across visible regions ── */
 
@@ -724,7 +747,7 @@ export function App(): JSX.Element {
     if (mode !== "formula" || resolvedFormula.length === 0) return new Map<string, number>();
     const metric = metricForFraming(framing);
     const m = new Map<string, number>();
-    for (const id of visibleRegionIds) {
+    for (const id of formulaRegionIds) {
       const r = evalFormula(resolvedFormula, id, formulaLookup, metric);
       if (r.ok) m.set(id, r.value);
     }
@@ -739,7 +762,7 @@ export function App(): JSX.Element {
       }
     }
     return m;
-  }, [mode, resolvedFormula, visibleRegionIds, formulaLookup, framing, selected]);
+  }, [mode, resolvedFormula, formulaRegionIds, formulaLookup, framing, selected]);
 
   /* ─── Map fill ──────────────────────────────────────────── */
 
@@ -750,6 +773,17 @@ export function App(): JSX.Element {
 
   const getFill = useCallback(
     (regionId: string): string => {
+      // Ahvenanmaa exclusion in formula mode: render the vp as
+      // crosshatch so the user sees it's intentionally outside the
+      // ramp scaling, not a no-data row of the actual formula.
+      if (
+        mode === "formula" &&
+        excludeAhvenanmaa &&
+        level === "vp" &&
+        regionId === "05"
+      ) {
+        return NODATA_FILL;
+      }
       const result =
         currentResults?.get(regionId) ??
         hvaById.get(regionId) ??
@@ -785,6 +819,8 @@ export function App(): JSX.Element {
       supportRange,
       changeRange,
       votesRange,
+      excludeAhvenanmaa,
+      level,
     ],
   );
 
@@ -1228,6 +1264,41 @@ export function App(): JSX.Element {
               ) : null}
               <ParamLabel>Skaalaus</ParamLabel>
               <FramingTabs value={framing} onChange={setFraming} canVsSelected={Boolean(selected)} />
+              <span
+                style={{ width: 1, height: 22, background: "var(--hair)", margin: "0 4px" }}
+              />
+              <label
+                style={{
+                  display: "inline-flex",
+                  alignItems: "center",
+                  gap: 6,
+                  fontSize: 12,
+                  cursor: "pointer",
+                }}
+                title="Ahvenanmaalla ei ole ääniä mantereen puolueille — sen mukaan ottaminen romahduttaa väriliukuman muille alueille."
+              >
+                <input
+                  type="checkbox"
+                  checked={excludeAhvenanmaa}
+                  onChange={(e) => {
+                    const next = e.target.checked;
+                    setExcludeAhvenanmaa(next);
+                    // Persist on the active custom workflow so the
+                    // setting survives a reload / re-apply.
+                    if (appliedWorkflowId) {
+                      setCustomWorkflows((prev) =>
+                        prev.map((w) =>
+                          w.id === appliedWorkflowId
+                            ? { ...w, excludeAhvenanmaa: next }
+                            : w,
+                        ),
+                      );
+                    }
+                  }}
+                  style={{ accentColor: "var(--ink)" }}
+                />
+                <span>Älä huomioi Ahvenanmaata</span>
+              </label>
             </>
           ) : mode === "change" ? (
             <>
@@ -1625,7 +1696,8 @@ function FramingTabs({
     {
       id: "vsSelected",
       label: "Suhteellinen muutos %",
-      title: "Värittää alueet erona valittuun alueeseen, %",
+      title:
+        "Värittää alueet erona valittuun alueeseen, %. Klikkaa ensin alue kartalta — se on vertailukohta.",
       needsSel: true,
     },
   ];
@@ -1640,7 +1712,11 @@ function FramingTabs({
             onClick={() => !disabled && onChange(opt.id)}
             role="button"
             tabIndex={0}
-            title={disabled ? "Valitse alue ensin" : opt.title}
+            title={
+              disabled
+                ? "Klikkaa ensin alue kartalta — kaavan arvoa verrataan siihen."
+                : opt.title
+            }
             style={{
               cursor: disabled ? "not-allowed" : "pointer",
               fontSize: 12,
