@@ -1400,7 +1400,7 @@ export function App(): JSX.Element {
               onBack={drillUpToVp}
             />
           ) : (
-            <>
+            <div className="map-frame">
               <HierarchyMap
                 geometry={geometry}
                 level={level}
@@ -1484,7 +1484,7 @@ export function App(): JSX.Element {
                   refElectionLabel={mode === "change" ? refLabel : undefined}
                 />
               </div>
-            </>
+            </div>
           )}
         </div>
         <div className="dashboard-ledger">
