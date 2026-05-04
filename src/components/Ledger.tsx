@@ -71,7 +71,14 @@ export function Ledger({
         border: "var(--border-default) solid var(--line)",
         borderRadius: "var(--radius-card)",
         boxShadow: "var(--shadow-default)",
-        overflow: "hidden",
+        // Internal scroll: when the column hosts a card whose content
+        // (party bars + candidate list) is taller than the viewport,
+        // the card itself scrolls so every row stays reachable.
+        // The parent `.dashboard-ledger > aside` rule supplies
+        // `flex: 1 1 0; min-height: 0; overflow-y: auto;` for the
+        // scroll axis; we keep horizontal overflow hidden to avoid
+        // the candidate row labels causing a horizontal bar.
+        overflowX: "hidden",
         minWidth: 0,
       }}
     >

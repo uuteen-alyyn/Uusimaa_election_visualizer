@@ -1431,6 +1431,23 @@ export function App(): JSX.Element {
 
 
       <main className="dashboard" id="map-area">
+        <div className="dashboard-ledger">
+          <Ledger
+            result={ledger.result}
+            label={ledger.label}
+            levelLabel={ledger.levelLabel}
+            loading={dataLoading}
+            formulaValue={ledger.formulaValue ?? null}
+            formulaSummaryText={ledger.formulaSummaryText ?? null}
+            framing={mode === "formula" ? framing : null}
+            formulaDescription={
+              mode === "formula" && appliedWorkflowId
+                ? customWorkflows.find((w) => w.id === appliedWorkflowId)
+                    ?.description ?? null
+                : null
+            }
+          />
+        </div>
         <div
           className="dashboard-map"
           ref={mapAreaRef}
@@ -1459,50 +1476,42 @@ export function App(): JSX.Element {
                 onPick={onPick}
                 onZoomIn={onZoomIn}
               />
+              {/* Legend overlay: top-left of the actual map. With the
+                  ledger now on the left side of the page, top-left
+                  of the map sits visually adjacent to the ledger and
+                  covers only the empty space above Lapland's western
+                  coast — much less critical than the southern
+                  regions it used to overlap. */}
+              <div
+                style={{
+                  position: "absolute",
+                  top: 10,
+                  left: 10,
+                  pointerEvents: "auto",
+                  zIndex: 4,
+                }}
+              >
+                <DynamicLegend
+                  mode={mode}
+                  focusParty={focusParty}
+                  winnerParties={winnerPartiesInView}
+                  hasNoData={hasNoDataInView}
+                  supportRange={supportRange}
+                  changeRange={changeRange}
+                  votesRange={votesRange}
+                  formulaRange={formulaRange}
+                  formulaSummary={
+                    mode === "formula" && resolvedFormula.length > 0
+                      ? formulaSummary(resolvedFormula)
+                      : null
+                  }
+                  framing={mode === "formula" ? framing : null}
+                  electionLabel={electionLabel}
+                  refElectionLabel={mode === "change" ? refLabel : undefined}
+                />
+              </div>
             </div>
           )}
-        </div>
-        <div className="dashboard-ledger">
-          {/* Legend moved here from the map overlay so it doesn't
-              cover southern Finland (Helsinki + Uusimaa was hidden
-              by it in winner mode). Sits at the top of the ledger
-              column where it visually pairs with "what the colors
-              mean" right next to the data. */}
-          <div style={{ marginBottom: 10 }}>
-            <DynamicLegend
-              mode={mode}
-              focusParty={focusParty}
-              winnerParties={winnerPartiesInView}
-              hasNoData={hasNoDataInView}
-              supportRange={supportRange}
-              changeRange={changeRange}
-              votesRange={votesRange}
-              formulaRange={formulaRange}
-              formulaSummary={
-                mode === "formula" && resolvedFormula.length > 0
-                  ? formulaSummary(resolvedFormula)
-                  : null
-              }
-              framing={mode === "formula" ? framing : null}
-              electionLabel={electionLabel}
-              refElectionLabel={mode === "change" ? refLabel : undefined}
-            />
-          </div>
-          <Ledger
-            result={ledger.result}
-            label={ledger.label}
-            levelLabel={ledger.levelLabel}
-            loading={dataLoading}
-            formulaValue={ledger.formulaValue ?? null}
-            formulaSummaryText={ledger.formulaSummaryText ?? null}
-            framing={mode === "formula" ? framing : null}
-            formulaDescription={
-              mode === "formula" && appliedWorkflowId
-                ? customWorkflows.find((w) => w.id === appliedWorkflowId)
-                    ?.description ?? null
-                : null
-            }
-          />
         </div>
       </main>
 

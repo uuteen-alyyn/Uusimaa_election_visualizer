@@ -99,7 +99,8 @@ select:focus-visible {
 .dashboard {
   flex: 1 1 auto;
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 360px;
+  /* Ledger column on the left, map on the right. */
+  grid-template-columns: 360px minmax(0, 1fr);
   gap: 20px;
   align-items: stretch;
   /* `min-height: 0` lets the grid shrink inside the flex column
@@ -140,18 +141,18 @@ select:focus-visible {
   max-height: 100%;
 }
 
-/* The ledger column has the legend on top + the Ledger card; let
-   them stack and scroll together when content is tall. */
+/* Ledger column hosts the Ledger card. The card itself scrolls
+   internally when its content (parties + candidates) outgrows the
+   column, so the column doesn't need its own scroll. */
 .dashboard-ledger {
   display: flex;
   flex-direction: column;
-}
-
-.dashboard-ledger {
   min-width: 0;
   min-height: 0;
-  /* Ledger gets its own scroll axis when it overflows the cell —
-     party-share bars + the candidates list can stack tall. */
+}
+.dashboard-ledger > aside {
+  flex: 1 1 0;
+  min-height: 0;
   overflow-y: auto;
 }
 
