@@ -96,21 +96,29 @@ function FormulaValueBlock({
   summaryText: string;
   framing: FormulaFraming | null;
 }): JSX.Element {
-  const suffix = framing === "share" || framing === "vsSelected" ? "%" : "";
+  const isVotes = framing === "absVotes";
+  const suffix =
+    framing === "share" || framing === "vsSelected" ? "%" : "";
   const sign = framing === "vsSelected" && value != null && value > 0 ? "+" : "";
   const fmt = (v: number | null): string => {
     if (v === null || !Number.isFinite(v)) return "—";
+    if (isVotes) {
+      // Vote counts: integer with Finnish thousand separators.
+      return new Intl.NumberFormat("fi-FI").format(Math.round(v));
+    }
     const a = Math.abs(v);
     if (a >= 10_000) return `${(v / 1000).toFixed(1)}k${suffix}`;
     if (a >= 100) return `${sign}${v.toFixed(0)}${suffix}`;
     return `${sign}${v.toFixed(1)}${suffix}`;
   };
   const framingLabel =
-    framing === "share"
-      ? "% näkyvistä yhteensä"
-      : framing === "vsSelected"
-        ? "vs valittu alue"
-        : "raaka-arvo";
+    framing === "absVotes"
+      ? "ääniä"
+      : framing === "share"
+        ? "% näkyvistä yhteensä"
+        : framing === "vsSelected"
+          ? "vs valittu alue"
+          : "prosenttiyksikköä";
 
   return (
     <div

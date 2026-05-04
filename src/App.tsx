@@ -49,6 +49,7 @@ import {
 const NUM_FI = new Intl.NumberFormat("fi-FI");
 import {
   evalFormula,
+  metricForFraming,
   formulaRange as computeFormulaRange,
   formulaSummary,
   listSelectors,
@@ -642,9 +643,10 @@ export function App(): JSX.Element {
   // Per-region formula values (memoised, so getFill is O(1) per call).
   const formulaValueByRegion = useMemo(() => {
     if (mode !== "formula" || resolvedFormula.length === 0) return new Map<string, number>();
+    const metric = metricForFraming(framing);
     const m = new Map<string, number>();
     for (const id of visibleRegionIds) {
-      const r = evalFormula(resolvedFormula, id, formulaLookup);
+      const r = evalFormula(resolvedFormula, id, formulaLookup, metric);
       if (r.ok) m.set(id, r.value);
     }
     if (framing === "share") {
@@ -740,6 +742,9 @@ export function App(): JSX.Element {
         case "formula": {
           const v = formulaValueByRegion.get(regionId);
           if (v == null) return `${label} — kaava: ei arvoa`;
+          if (framing === "absVotes") {
+            return `${label} — ƒ ${NUM_FI.format(Math.round(v))} ääntä`;
+          }
           const unit =
             framing === "share" || framing === "vsSelected" ? "%" : "";
           const sign = framing === "vsSelected" && v > 0 ? "+" : "";
@@ -1385,10 +1390,32 @@ function FramingTabs({
   onChange: (f: FormulaFraming) => void;
   canVsSelected: boolean;
 }): JSX.Element {
-  const opts: Array<{ id: FormulaFraming; label: string; needsSel?: boolean }> = [
-    { id: "absolute", label: "Absoluuttinen" },
-    { id: "share", label: "% kokonaisuudesta" },
-    { id: "vsSelected", label: "vs valittu", needsSel: true },
+  // Three buttons: vote count (absolute), percentage points
+  // (absolute share %), and relative change vs the selected region.
+  // The legacy "% kokonaisuudesta" framing still exists in the
+  // codec but isn't exposed as a button.
+  const opts: Array<{
+    id: FormulaFraming;
+    label: string;
+    title: string;
+    needsSel?: boolean;
+  }> = [
+    {
+      id: "absVotes",
+      label: "Äänimäärä",
+      title: "Värittää alueet kaavan tuottaman äänimäärän mukaan",
+    },
+    {
+      id: "absolute",
+      label: "Prosenttiyksikköä",
+      title: "Värittää alueet kaavan tuottaman %-arvon mukaan",
+    },
+    {
+      id: "vsSelected",
+      label: "Suhteellinen muutos %",
+      title: "Värittää alueet erona valittuun alueeseen, %",
+      needsSel: true,
+    },
   ];
   return (
     <div style={{ display: "flex", gap: 4 }}>
@@ -1401,7 +1428,7 @@ function FramingTabs({
             onClick={() => !disabled && onChange(opt.id)}
             role="button"
             tabIndex={0}
-            title={disabled ? "Valitse alue ensin" : ""}
+            title={disabled ? "Valitse alue ensin" : opt.title}
             style={{
               cursor: disabled ? "not-allowed" : "pointer",
               fontSize: 12,
@@ -1423,7 +1450,11 @@ function SelectorBindingRow({
   labels,
   electionsWithData,
 }: {
-  selectors: Array<{ name: string; slot: "type" | "year" | "who" }>;
+  selectors: Array<{
+    name: string;
+    slot: "type" | "year" | "who";
+    typeHint: ElectionTypeId | null;
+  }>;
   bindings: Record<string, Binding>;
   setBindings: React.Dispatch<React.SetStateAction<Record<string, Binding>>>;
   labels: Record<string, string>;
@@ -1510,7 +1541,13 @@ function SelectorBindingRow({
               >
                 <option value="">— valitse vuosi —</option>
                 {ELECTIONS.filter(
-                  (e) => electionsWithData == null || electionsWithData.has(e.id),
+                  (e) =>
+                    (electionsWithData == null || electionsWithData.has(e.id)) &&
+                    // Filter to the chip-resolved type when every chip
+                    // referencing this $Year selector shares one type
+                    // (so picking "Pres 2024 r1" can't bind through
+                    // an EU chip and silently resolve to eu2024).
+                    (s.typeHint == null || e.typeId === s.typeHint),
                 ).map((e) => (
                   <option key={e.id} value={`${e.year}_${e.round ?? 1}`}>
                     {e.shortLabel}

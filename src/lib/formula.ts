@@ -61,14 +61,19 @@ export function chipElectionId(fields: ChipFields): ElectionId | null {
   return `${fields.type}${fields.year}` as ElectionId;
 }
 
+/** Chip metric — controls whether `chipValue` returns share %
+ *  (the default, matching the prototype's behaviour) or absolute
+ *  vote counts. The framing layer in `evalAcrossRegions` decides
+ *  which to use based on the active `FormulaFraming`. */
+export type ChipMetric = "share" | "votes";
+
 /** Compute the numeric value contributed by a chip in one region.
- *  Returns `null` for unbound selectors, missing data, or unsupported
- *  metrics (candidate, votes-per-party). The evaluator surfaces the
- *  appropriate error for each case. */
+ *  Returns `null` for unbound selectors or missing data. */
 export function chipValue(
   fields: ChipFields,
   regionId: string,
   lookup: ResultLookup,
+  metric: ChipMetric = "share",
 ): number | null {
   if (fields.selWho) return null;
   const electionId = chipElectionId(fields);
@@ -77,8 +82,26 @@ export function chipValue(
   if (!result) return null;
 
   const who = fields.who;
+
+  if (metric === "votes") {
+    if (!who) {
+      // No `who` → "this region's votes" — same value the votes-mode
+      // workflow uses when no focus party is set. Useful for things
+      // like raw turnout count.
+      return result.votes;
+    }
+    if ("party" in who) {
+      const share = result.shares[who.party] ?? 0;
+      return Math.round((result.votes * share) / 100);
+    }
+    // candidate — return the absolute candidate vote count.
+    const cand = result.candidates?.find((c) => c.id === who.candidate.id);
+    if (!cand) return null;
+    return cand.votes;
+  }
+
+  // metric === "share"
   if (!who) {
-    // No who → turnout metric (matches prototype's fallback)
     return result.turnout;
   }
   if ("party" in who) {
@@ -106,6 +129,7 @@ export function evalFormula(
   tokens: FormulaToken[],
   regionId: string,
   lookup: ResultLookup,
+  metric: ChipMetric = "share",
 ): EvalResult {
   if (!tokens || tokens.length === 0) return { ok: false, error: "empty formula" };
 
@@ -126,7 +150,7 @@ export function evalFormula(
       if (f.selType || f.selYear || f.selWho) {
         return { ok: false, error: "unbound selector" };
       }
-      const v = chipValue(f, regionId, lookup);
+      const v = chipValue(f, regionId, lookup, metric);
       if (v === null) return { ok: false, error: "no data for chip" };
       out.push(v);
       prev = "val";
@@ -194,13 +218,19 @@ interface Entry {
 }
 
 /** Re-scale a list of evaluated values according to the framing
- *  mode. Pure — no side effects. */
+ *  mode. Pure — no side effects.
+ *
+ *  `absVotes` and `absolute` differ only in chip metric (caller
+ *  picks `"votes"` vs `"share"`); both leave evaluator output
+ *  alone. `share` rescales to a region's % of the visible total;
+ *  `vsSelected` rescales as a relative change vs the selected
+ *  region. */
 export function applyFraming(
   entries: Entry[],
   framing: FormulaFraming,
   framingRef: string | null = null,
 ): Entry[] {
-  if (framing === "absolute") return entries;
+  if (framing === "absolute" || framing === "absVotes") return entries;
   if (framing === "share") {
     const sum = entries.reduce((acc, e) => acc + e.v, 0);
     if (sum === 0) return entries.map((e) => ({ ...e, v: 0 }));
@@ -213,10 +243,18 @@ export function applyFraming(
   return entries.map((e) => ({ ...e, v: ((e.v - base) / Math.abs(base)) * 100 }));
 }
 
+/** Map a framing to the chip metric it expects. `absVotes` needs
+ *  the chip evaluator to return raw vote counts; everything else
+ *  uses share %. */
+export function metricForFraming(framing: FormulaFraming): ChipMetric {
+  return framing === "absVotes" ? "votes" : "share";
+}
+
 /** Evaluate the formula across a list of regions, returning framed
  *  `(id, value)` pairs. Regions whose evaluation errors are silently
  *  excluded — the caller can detect them by comparing input vs.
- *  output length. */
+ *  output length. The chip metric ("share" vs "votes") is derived
+ *  from the framing. */
 export function evalAcrossRegions(
   tokens: FormulaToken[],
   regionIds: string[],
@@ -224,9 +262,10 @@ export function evalAcrossRegions(
   framing: FormulaFraming = "absolute",
   framingRef: string | null = null,
 ): Entry[] {
+  const metric = metricForFraming(framing);
   const raw: Entry[] = [];
   for (const id of regionIds) {
-    const r = evalFormula(tokens, id, lookup);
+    const r = evalFormula(tokens, id, lookup, metric);
     if (r.ok) raw.push({ id, v: r.value });
   }
   return applyFraming(raw, framing, framingRef);
@@ -339,17 +378,44 @@ export function resolveFormulaTokens(
 }
 
 /** Find every distinct selector slot in a token list, in order of
- *  first appearance. Used by the param-row binding picker. */
+ *  first appearance. Used by the param-row binding picker.
+ *
+ *  `typeHint` carries the concrete type of any chip that contains the
+ *  selector — when every chip referencing the selector shares the
+ *  same type, the binding picker can filter year/who options to that
+ *  type (e.g. a `$Y` referenced only in EU chips → list only EU
+ *  years). When chips reference selectors with mixed/abstract types,
+ *  typeHint is null and the picker shows everything. */
 export function listSelectors(
   tokens: FormulaToken[],
-): Array<{ name: string; slot: "type" | "year" | "who" }> {
-  const seen = new Map<string, "type" | "year" | "who">();
+): Array<{ name: string; slot: "type" | "year" | "who"; typeHint: import("../types/elections").ElectionTypeId | null }> {
+  const slot = new Map<string, "type" | "year" | "who">();
+  // Track the set of concrete types each selector co-occurs with;
+  // emit a single typeHint only when all chips agree.
+  const types = new Map<string, Set<string>>();
+  const noteType = (name: string, t: import("../types/elections").ElectionTypeId | undefined): void => {
+    if (!types.has(name)) types.set(name, new Set());
+    if (t) types.get(name)!.add(t);
+  };
   for (const t of tokens) {
     if (t.kind !== "chip") continue;
     const f = t.fields;
-    if (f.selType && !seen.has(f.selType)) seen.set(f.selType, "type");
-    if (f.selYear && !seen.has(f.selYear)) seen.set(f.selYear, "year");
-    if (f.selWho && !seen.has(f.selWho)) seen.set(f.selWho, "who");
+    if (f.selType && !slot.has(f.selType)) slot.set(f.selType, "type");
+    if (f.selYear) {
+      if (!slot.has(f.selYear)) slot.set(f.selYear, "year");
+      noteType(f.selYear, f.type);
+    }
+    if (f.selWho) {
+      if (!slot.has(f.selWho)) slot.set(f.selWho, "who");
+      noteType(f.selWho, f.type);
+    }
   }
-  return [...seen.entries()].map(([name, slot]) => ({ name, slot }));
+  return [...slot.entries()].map(([name, s]) => {
+    const ts = types.get(name);
+    const typeHint =
+      ts && ts.size === 1
+        ? (ts.values().next().value as import("../types/elections").ElectionTypeId)
+        : null;
+    return { name, slot: s, typeHint };
+  });
 }

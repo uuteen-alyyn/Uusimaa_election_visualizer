@@ -373,16 +373,22 @@ function FormulaBody({
 }): JSX.Element {
   const isDiverging = range != null && range.min < 0 && range.max > 0;
   const unit =
-    framing === "share" ? "%" : framing === "vsSelected" ? "%" : "";
+    framing === "absVotes"
+      ? ""
+      : framing === "share" || framing === "vsSelected"
+        ? "%"
+        : "";
   return (
     <>
       <Caption>
         Mukautettu kaava
-        {framing === "share"
-          ? " · % näkyvistä"
-          : framing === "vsSelected"
-            ? " · vs valittu"
-            : ""}
+        {framing === "absVotes"
+          ? " · äänimäärä"
+          : framing === "share"
+            ? " · % näkyvistä"
+            : framing === "vsSelected"
+              ? " · vs valittu"
+              : " · prosenttiyksikköä"}
       </Caption>
       {summary ? (
         <div

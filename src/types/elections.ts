@@ -151,8 +151,25 @@ export interface Binding {
   who?: ChipWho;
 }
 
-/** Formula framing — how raw values are rescaled for display. */
-export type FormulaFraming = "absolute" | "share" | "vsSelected";
+/** Formula framing — how chip metrics are computed and how the
+ *  resulting per-region values are rescaled for display.
+ *
+ *  - `absVotes`   — chip metric = absolute vote count (party votes,
+ *                   candidate votes, or region total when no `who`).
+ *                   No rescale. Useful for "where did this party
+ *                   pull its raw votes from?"
+ *  - `absolute`   — chip metric = vote-share % (or turnout %).
+ *                   No rescale. The original "Absoluuttinen" mode.
+ *  - `vsSelected` — share %, then re-expressed as relative change vs
+ *                   the currently selected region.
+ *  - `share`      — share %, rescaled as a region's % of the visible
+ *                   total. Kept for share-link backwards compat;
+ *                   not exposed in the current UI. */
+export type FormulaFraming =
+  | "absVotes"
+  | "absolute"
+  | "share"
+  | "vsSelected";
 
 /* ─── App state (URL hash codec target) ────────────────────── */
 
