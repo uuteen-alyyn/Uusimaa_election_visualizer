@@ -24,6 +24,52 @@ TLS is terminated by Caddy on the box, not Cloudflare):
 | A    | vaalit | 62.238.0.198                |
 | AAAA | vaalit | 2a01:4f9:c014:52b3::1       |
 
+## Build host requirements
+
+The build itself is the resource-intensive part — once `dist/` is
+produced, serving it needs almost nothing.
+
+| Resource     | Build host                          | Serving host          |
+| ------------ | ----------------------------------- | --------------------- |
+| Node.js      | 20.x or 22.x (tested on v22.22.2)   | n/a (static files)    |
+| RAM          | **8 GB recommended, 4 GB minimum**  | tiny — Caddy only     |
+| Swap         | enable if RAM ≤ 4 GB                | n/a                   |
+| Outbound TLS | `pxdata.stat.fi` (Tilastokeskus)    | n/a                   |
+| Disk         | ~250 MB (repo + cache + node_modules) | ~17 MB (`dist/`)    |
+
+**Why so much RAM**: the prefetch holds the full PxWeb response
+cache (`cache-store.json`, ~110 MB on disk) in memory and rewrites
+the entire snapshot to disk on every successful query. Combined
+with per-election working memory while parsing the larger tables
+(kunta2025 alone is ~670k rows), peak resident set comfortably
+hits 1.5–2 GB.
+
+A small Hetzner CX23 (4 GB / no swap) **will OOM-kill the prefetch
+mid-run** unless you both add swap and bake the heap flag. The
+`prefetch` npm script already passes `--max-old-space-size=4096
+--expose-gc` and the script forces a full GC between elections, so
+on a 4 GB box with ≥ 4 GB swap the build typically completes; on a
+swap-less box it'll get killed by the kernel without printing
+anything to stdout.
+
+**Recommendation**: build locally on a development machine and
+`scp` / `rsync` the resulting `dist/` to the server. Each content
+update is a one-shot local build. The server then only needs Caddy.
+
+If you do want to build on the server itself:
+
+```bash
+sudo fallocate -l 4G /swapfile && sudo chmod 600 /swapfile
+sudo mkswap /swapfile && sudo swapon /swapfile
+echo '/swapfile none swap sw 0 0' | sudo tee -a /etc/fstab
+```
+
+If the build still gets killed silently, the most likely cause is
+that the cache file has grown unwieldy after many runs. Delete
+`cache-store.json` at the repo root and retry — first run after
+that hits PxWeb fresh (5 min) but every subsequent run reuses the
+trimmed-down cache.
+
 ## Build (one-time; repeat to refresh)
 
 The build pulls live election data from Tilastokeskus' PxWeb API at
@@ -50,9 +96,30 @@ npm run build
 3. `vite build` — emits `dist/`.
 
 If the prefetch trips a 429 it'll retry with backoff automatically.
-If it gets a hard failure (403, network error) it leaves the
-affected election as `{ "status": "no_data" }` and the UI renders
-an "Ei tietoja" crosshatch — the build still succeeds.
+If it gets a hard failure (403, network error, parse error) the
+script catches it per-election, writes a `{ "status": "no_data" }`
+placeholder for that election, and continues with the rest. The UI
+renders an "Ei tietoja" crosshatch for those regions — the rest of
+the build still succeeds.
+
+**Always check the trailing summary line.** The script always logs
+either:
+
+```
+[prefetch] done — 13 with data, 1 no_data, 0 failed, 14499.4 KB total
+```
+
+or, if the process is killed mid-run (kernel OOM):
+
+```
+[prefetch] EXIT code=… — partial run: N with data, M no_data, K failed,
+            X/14 elections attempted, Y KB written
+[prefetch] hint: a silent kill at this point is usually OOM. …
+```
+
+If you see the EXIT-line variant, treat it as "rebuild needed" —
+`dist/` is incomplete (likely missing fixtures + skipped typecheck +
+skipped vite build). Don't deploy.
 
 After build, copy or symlink `dist/` to the path Caddy serves:
 

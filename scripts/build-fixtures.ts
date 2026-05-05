@@ -2085,6 +2085,38 @@ async function copyGeometry(): Promise<void> {
   console.log(`[prefetch] copied ${GEOMETRY_FILES.length} geometry files into public/data/`);
 }
 
+/** Persist running totals at module scope so the `process.on("exit")`
+ *  hook can print them no matter how the script terminates — silent
+ *  OOM kills (kernel SIGKILL on small hosts) used to leave the user
+ *  with a missing dist/ and zero diagnostic. The hook runs even on
+ *  uncaught exceptions and graceful exit, so the operator always
+ *  sees how far the prefetch got. */
+const progress = {
+  withData: 0,
+  withoutData: 0,
+  failed: 0,
+  totalBytes: 0,
+  attempted: 0,
+  finished: false,
+};
+
+process.on("exit", (code) => {
+  if (progress.finished) return; // main() already printed its own summary
+  const totalKb = (progress.totalBytes / 1024).toFixed(1);
+  console.warn(
+    `[prefetch] EXIT code=${code} — partial run: ${progress.withData} with data, ` +
+      `${progress.withoutData} no_data, ${progress.failed} failed, ` +
+      `${progress.attempted}/${ELECTIONS.length} elections attempted, ` +
+      `${totalKb} KB written`,
+  );
+  if (progress.attempted < ELECTIONS.length) {
+    console.warn(
+      "[prefetch] hint: a silent kill at this point is usually OOM. " +
+        "See deploy.md → build host requirements.",
+    );
+  }
+});
+
 async function main(): Promise<void> {
   await copyGeometry();
   await mkdir(OUT_DIR, { recursive: true });
@@ -2108,35 +2140,75 @@ async function main(): Promise<void> {
     console.log(`[prefetch] wrote kunta-hva.json (${Object.keys(hvaMapping.kuntaToHva).length} kuntat)`);
   }
 
-  let totalBytes = 0;
-  let withData = 0;
-  let withoutData = 0;
-
   for (const e of ELECTIONS) {
-    const fixture = await buildFixture(e.id, e.typeId, e.year, hvaMapping);
-    const json = JSON.stringify(fixture);
-    const path = resolve(OUT_DIR, `${e.id}.json`);
-    await writeFile(path, json, "utf8");
-    totalBytes += json.length;
+    progress.attempted += 1;
+    try {
+      const fixture = await buildFixture(e.id, e.typeId, e.year, hvaMapping);
+      const json = JSON.stringify(fixture);
+      const path = resolve(OUT_DIR, `${e.id}.json`);
+      await writeFile(path, json, "utf8");
+      progress.totalBytes += json.length;
 
-    if (fixture.status === "no_data") {
-      withoutData += 1;
-    } else {
-      withData += 1;
-      const areaCount = fixture.areas?.length ?? 0;
-      console.log(`[prefetch]   ${e.id}: ${areaCount} areas, ${(json.length / 1024).toFixed(1)} KB`);
+      if (fixture.status === "no_data") {
+        progress.withoutData += 1;
+      } else {
+        progress.withData += 1;
+        const areaCount = fixture.areas?.length ?? 0;
+        console.log(
+          `[prefetch]   ${e.id}: ${areaCount} areas, ${(json.length / 1024).toFixed(1)} KB`,
+        );
+      }
+    } catch (err) {
+      // One election's failure (transient PxWeb error, parsing issue,
+      // …) shouldn't tank the whole build. Log the failure, write a
+      // no_data placeholder so the deployed app crosshatches that
+      // election cleanly instead of hard-erroring on a missing fixture
+      // file, and carry on.
+      progress.failed += 1;
+      const msg = err instanceof Error ? err.message : String(err);
+      console.error(`[prefetch] ${e.id}: failed: ${msg}`);
+      try {
+        const placeholder = JSON.stringify({
+          electionId: e.id,
+          status: "no_data",
+        });
+        await writeFile(
+          resolve(OUT_DIR, `${e.id}.json`),
+          placeholder,
+          "utf8",
+        );
+        progress.totalBytes += placeholder.length;
+      } catch {
+        // ignore — the EXIT hook will surface the partial state
+      }
     }
+
+    // Hint to V8 to release per-election working memory before the
+    // next iteration. Only fires when the runner is started with
+    // --expose-gc (package.json's prefetch script does so). On a
+    // 4 GB host this can be the difference between completing and
+    // an OOM kill mid-prefetch.
+    if (typeof globalThis.gc === "function") globalThis.gc();
   }
 
-  const totalKb = (totalBytes / 1024).toFixed(1);
+  const totalKb = (progress.totalBytes / 1024).toFixed(1);
   console.log(
-    `[prefetch] done — ${withData} with data, ${withoutData} no_data, ${totalKb} KB total`,
+    `[prefetch] done — ${progress.withData} with data, ` +
+      `${progress.withoutData} no_data, ${progress.failed} failed, ` +
+      `${totalKb} KB total`,
   );
+  progress.finished = true;
 
-  if (totalBytes > SIZE_BUDGET_BYTES) {
+  if (progress.totalBytes > SIZE_BUDGET_BYTES) {
     console.warn(
-      `[prefetch] WARNING: output ${(totalBytes / 1024 / 1024).toFixed(2)} MB exceeds 10 MB budget`,
+      `[prefetch] WARNING: output ${(progress.totalBytes / 1024 / 1024).toFixed(2)} MB exceeds 10 MB budget`,
     );
+  }
+
+  if (progress.failed > 0) {
+    // Non-zero exit so CI surfaces the partial run, but only after
+    // we've written the placeholders + final summary above.
+    process.exitCode = 1;
   }
 }
 
