@@ -202,9 +202,24 @@ select:focus-visible {
    primitives.css under the same breakpoint; layout / spacing
    tweaks belong here. */
 @media (max-width: 640px) {
+  body {
+    /* Body text: 13px is comfortable on desktop but cramped on a
+       390px screen. Bump to 15px so paragraphs / ledger rows /
+       tooltips read without squinting. */
+    font-size: 15px;
+    /* Suppress iOS Safari's blue tap-flash; :focus-visible already
+       handles keyboard a11y separately. */
+    -webkit-tap-highlight-color: transparent;
+  }
   .page {
     padding: 12px 12px 8px;
     gap: 8px;
+  }
+  .page footer {
+    /* Attribution line wraps cleanly on mobile — bump font-size
+       slightly so the legal text isn't unreadable. */
+    font-size: 12px;
+    line-height: 1.5;
   }
   .col {
     gap: 8px;
@@ -218,9 +233,11 @@ select:focus-visible {
   .col-right > .col-right-actions {
     justify-content: center;
   }
-  body {
-    /* Suppress iOS Safari's blue tap-flash; :focus-visible already
-       handles keyboard a11y separately. */
-    -webkit-tap-highlight-color: transparent;
+  /* Per-mode controls (Puolue / Vertailuvaali / Skaala etc.) —
+     allow wrapping with a slightly bigger row gap than the
+     default 8px so toggle pills don't crowd into each other on
+     a single line. */
+  .col-right > .col-right-controls {
+    row-gap: 10px;
   }
 }
