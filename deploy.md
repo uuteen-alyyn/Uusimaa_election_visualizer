@@ -93,7 +93,52 @@ complain about non-fast-forward; `reset --hard` doesn't.
 
 No restart needed. Caddy serves the new files on the next request.
 
+## Phone-testing before pushing to production
+
+When working on UI changes (especially mobile-affecting ones), you
+can preview from your phone without going through CI + the server
+refresh by serving the dev build over your local Wi-Fi:
+
+```bash
+npm run dev -- --host
+```
+
+Vite prints both a localhost URL and a Network URL (something like
+`http://192.168.1.42:5173`). On a phone connected to the same
+Wi-Fi, open the Network URL — you'll see your in-progress branch
+exactly as code changes save. Hot-reload works across the LAN
+just like on localhost.
+
+If your firewall blocks the port, allow inbound TCP 5173 on the
+dev machine for the Wi-Fi network only (not Public).
+
+For a build-and-preview cycle that mirrors production more closely
+(no dev-mode warnings, CSS minified, fixtures served as static
+files):
+
+```bash
+npm run build
+npm run preview -- --host
+```
+
+Same Network URL pattern; serves the actual `dist/` artifact.
+
+This is the fastest iteration loop. Reserve the production deploy
+(below) for testing the actual Caddy + DNS + cache headers, or
+sharing a link.
+
+## Production refresh (when shipping a change)
+
+Push to `main` → CI builds → server team runs the refresh below.
+
+For desktop testing, hit <https://vaalit.leinonensanteri.fi> in
+a regular browser. For phone testing, hit the same URL on your
+phone — no special path, the page detects narrow viewports and
+serves the mobile layout automatically.
+
 ## Smoke test (run after every refresh)
+
+### Desktop checks
 
 1. <https://vaalit.leinonensanteri.fi> loads, paper-coloured background,
    13 vaalipiirit visible on the map, Helsinki callout square in the
@@ -113,6 +158,36 @@ No restart needed. Caddy serves the new files on the next request.
 7. Footer shows
    "Lähde: Tilastokeskus, vaalitilastot (CC BY 4.0) · Tilastointialueet
    © Tilastokeskus, CC BY 4.0".
+
+### Mobile checks (open the URL on a real phone)
+
+Mobile is in scope as of phase-6 of `Implementation_plan_mobile.md`.
+Walk these on iOS Safari + Android Chrome at least once per UI
+change:
+
+8. Stacked layout: title + Vaali / Mittari + ledger on top, map in
+   the middle, Jaa / Lataa / Käyttöohjeet + per-mode controls +
+   legend underneath. No horizontal scroll.
+9. Tap Helsinki callout square → ledger updates to "Helsinki
+   vaalipiiri". The square is comfortable to hit with a thumb.
+10. Drill into a vaalipiiri → kunnat. Tap a kunta → ledger updates
+    on first tap, no double-tap needed, no "ghost label" hangs.
+11. Drill into a kunta → AA-level. Default view on mobile is
+    **list** (scrollable rows with swatch + label), not the dense
+    SVG square grid. Toggle pinned to the top-left of the map
+    frame ("Kartta / Lista") swaps between them.
+12. Tap a row in the AA list → row highlights, ledger updates.
+13. Tap "+ Uusi mukautettu kaava…", type "kok" — suggestion list
+    appears as a **bottom sheet** above the on-screen keyboard,
+    scrollable. Tap a suggestion to add it. Save → modal closes.
+14. Tap a `<select>` (Vaali, Mittari) — the picker opens but
+    iOS Safari does **not** zoom the page. Page font-size stays
+    where you left it.
+15. Tap "Käyttöohjeet" → modal opens full-screen, three sections
+    stack vertically. Tap ✕ → closes.
+
+Anything that doesn't match → file an issue or paste a screenshot
+to the dev team.
 
 ## Operational notes
 
