@@ -1025,14 +1025,19 @@ export function App(): JSX.Element {
     if (mode !== "winner" || !currentResults) return [];
     const counts = new Map<PartyId, number>();
     for (const id of visibleRegionIds) {
-      const r = currentResults.get(id);
+      // At hva / aa level the rows live in their own maps, not in
+      // the vp+kunta currentResults — without the fallback chain
+      // the legend shows zero winner parties at those drill-downs
+      // even though the map (or list view) is fully coloured.
+      const r =
+        currentResults.get(id) ?? hvaById.get(id) ?? aaById.get(id) ?? null;
       if (!r) continue;
       const w = pickWinner(r);
       if (!w) continue;
       counts.set(w, (counts.get(w) ?? 0) + 1);
     }
     return [...counts.entries()].sort((a, b) => b[1] - a[1]).map(([p]) => p);
-  }, [mode, currentResults, visibleRegionIds]);
+  }, [mode, currentResults, hvaById, aaById, visibleRegionIds]);
 
   /** Whether at least one visible region renders the no-data
    *  crosshatch — used to add an "Ei tietoja" entry to the legend. */
