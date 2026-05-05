@@ -423,6 +423,7 @@ export function FormulaComposer({
 
         {open && (suggestions.length > 0 || candidatesAvailable) ? (
           <div
+            className="composer-suggestions"
             style={{
               position: "absolute",
               zIndex: 10,

@@ -2590,6 +2590,7 @@ function HelpBox(): JSX.Element {
               </span>
             </div>
             <div
+              className="help-grid"
               style={{
                 display: "grid",
                 gridTemplateColumns: "1fr 1fr 1fr",

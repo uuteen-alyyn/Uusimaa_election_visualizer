@@ -316,4 +316,38 @@
     justify-content: center;
     opacity: 0.85 !important;
   }
+  /* Composer suggestion dropdown becomes a bottom-sheet on
+     mobile so the on-screen keyboard doesn't bury it. !important
+     beats the inline `position: absolute; top: …` baseline. */
+  .composer-suggestions {
+    position: fixed !important;
+    left: 8px !important;
+    right: 8px !important;
+    top: auto !important;
+    bottom: 8px !important;
+    max-height: 50dvh !important;
+    z-index: 100 !important;
+    border-radius: var(--radius-card) !important;
+  }
+  /* WorkflowBuilder modal collapses to a full-screen sheet on
+     mobile — the centered card with 24px backdrop padding leaves
+     too little room for the composer + selector binding rows on
+     a 390px screen. */
+  .workflow-builder-backdrop {
+    padding: 0 !important;
+    align-items: stretch !important;
+  }
+  .workflow-builder-card {
+    width: 100% !important;
+    max-width: 100% !important;
+    max-height: 100dvh !important;
+    height: 100dvh !important;
+    border-radius: 0 !important;
+    padding: 12px !important;
+  }
+  /* HelpBox inner content grid: 3-col → 1-col on mobile. */
+  .help-grid {
+    grid-template-columns: 1fr !important;
+    gap: 14px !important;
+  }
 }

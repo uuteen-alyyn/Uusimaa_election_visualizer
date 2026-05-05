@@ -125,6 +125,7 @@ export function WorkflowBuilder({
 
   return (
     <div
+      className="workflow-builder-backdrop"
       onMouseDown={(e) => e.stopPropagation()}
       onClick={onClose}
       style={{
@@ -139,12 +140,12 @@ export function WorkflowBuilder({
       }}
     >
       <div
-        className="box"
+        className="box workflow-builder-card"
         onClick={(e) => e.stopPropagation()}
         style={{
           width: 680,
           maxWidth: "100%",
-          maxHeight: "calc(100vh - 48px)",
+          maxHeight: "calc(100dvh - 48px)",
           overflowY: "auto",
           padding: 20,
           boxShadow: "var(--shadow-deep)",
