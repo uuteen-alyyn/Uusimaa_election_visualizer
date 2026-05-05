@@ -143,23 +143,6 @@ export function HierarchyMap({
     return { regions: list, viewBox: KUNTA_VIEWBOX };
   }, [geometry, level, parentSlug, aaFeatures, hvaFeatures]);
 
-  // List-view early branch for AA level. Trades the spatial-grid
-  // SVG for a tall scrollable list of AAs whose row-height
-  // guarantees a 44 px+ tap target. Reuses the same `getFill` so
-  // the swatch beside each row matches the map color.
-  if (level === "aa" && aaListMode) {
-    return (
-      <AaListView
-        features={regions}
-        selected={selected}
-        getFill={getFill}
-        getTooltip={getTooltip}
-        onPick={onPick}
-        onZoomIn={onZoomIn}
-      />
-    );
-  }
-
   // Label-visibility rule:
   //   vp:    every region gets a label (only 13–14 regions)
   //   kunta: largest ~28 % by area, plus selected/hovered
@@ -259,6 +242,26 @@ export function HierarchyMap({
 
   const focusedId = selected ?? hoverId;
   const focusedRegion = focusedId ? regions.find((r) => r.id === focusedId) : null;
+
+  // List-view branch for AA level. Trades the spatial-grid SVG
+  // for a tall scrollable list of AAs whose row-height guarantees
+  // a 44 px+ tap target. Reuses the same `getFill` so the swatch
+  // beside each row matches the map color. Branch sits AFTER all
+  // hook calls — React requires hook order to be stable across
+  // renders, so an early return before any hook would crash the
+  // app the moment the user toggles between map and list.
+  if (level === "aa" && aaListMode) {
+    return (
+      <AaListView
+        features={regions}
+        selected={selected}
+        getFill={getFill}
+        getTooltip={getTooltip}
+        onPick={onPick}
+        onZoomIn={onZoomIn}
+      />
+    );
+  }
 
   return (
     <svg

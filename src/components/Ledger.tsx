@@ -352,9 +352,11 @@ function PartyShares({
   );
 }
 
-/** Section header with a chevron toggle. The whole bar is the
- *  hit target so it's easy to thumb on mobile; on desktop a
- *  click anywhere on the title flips the section. */
+/** Section header with a clearly-visible toggle button on the
+ *  right. The whole bar is the hit target so it's thumb-friendly,
+ *  and the right-edge `+` / `−` indicator reads as an affordance
+ *  even where the chevron `▾` was rendering invisibly in the
+ *  hand-drawn UI font on mobile. */
 function CollapsibleHeader({
   label,
   open,
@@ -369,6 +371,7 @@ function CollapsibleHeader({
       type="button"
       onClick={onToggle}
       aria-expanded={open}
+      aria-label={`${label} — ${open ? "piilota" : "näytä"}`}
       style={{
         display: "flex",
         width: "100%",
@@ -377,7 +380,7 @@ function CollapsibleHeader({
         gap: 8,
         background: "transparent",
         border: "none",
-        padding: "4px 0",
+        padding: "6px 0",
         marginBottom: open ? 8 : 0,
         cursor: "pointer",
         font: "inherit",
@@ -388,9 +391,10 @@ function CollapsibleHeader({
       <span
         style={{
           fontSize: 11,
-          opacity: 0.6,
+          opacity: 0.7,
           textTransform: "uppercase",
           letterSpacing: 0.5,
+          fontWeight: 600,
         }}
       >
         {label}
@@ -398,16 +402,23 @@ function CollapsibleHeader({
       <span
         aria-hidden="true"
         style={{
-          fontSize: 12,
-          opacity: 0.55,
-          transform: open ? "rotate(0deg)" : "rotate(-90deg)",
-          transition: "transform 120ms",
-          display: "inline-block",
-          width: 14,
-          textAlign: "center",
+          display: "inline-flex",
+          alignItems: "center",
+          justifyContent: "center",
+          width: 26,
+          height: 26,
+          border: "var(--border-thin) solid var(--line)",
+          borderRadius: "var(--radius-pill)",
+          background: "var(--paper-2)",
+          fontFamily:
+            "system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif",
+          fontSize: 16,
+          fontWeight: 700,
+          lineHeight: 1,
+          color: "var(--ink)",
         }}
       >
-        ▾
+        {open ? "−" : "+"}
       </span>
     </button>
   );
