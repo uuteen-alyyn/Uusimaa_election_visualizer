@@ -1,0 +1,114 @@
+name: Build & publish dist branch
+
+# Builds the static site on a hosted runner (16 GB RAM) and force-pushes
+# the resulting `dist/` directory to a `dist` branch in the same repo.
+# The server pulls from `dist` — it never builds, never installs Node,
+# never hits PxWeb. See deploy.md for the server-side procedure.
+#
+# Triggers:
+#   - push to main: every code change → fresh build.
+#   - workflow_dispatch: manual button in the GitHub Actions UI.
+#     Use this to re-run the prefetch after a new election so the
+#     fixtures pick up fresh PxWeb data without needing a code commit.
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+# Only one build at a time can publish to `dist` — concurrent runs on
+# rapid pushes would race the force-push. cancel-in-progress drops the
+# older run if a new push lands while one is mid-flight.
+concurrency:
+  group: build-dist
+  cancel-in-progress: true
+
+# Default GITHUB_TOKEN needs write access to push the dist branch back
+# into the same repo. No PAT required (same-repo, public).
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout (with submodules)
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          # The publish step writes its own .git inside dist/ — keep
+          # the parent checkout clean so a future fetch-depth tweak
+          # doesn't conflict.
+          fetch-depth: 1
+
+      - name: Setup Node 22 + npm cache
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      # Restore the PxWeb response cache (~110 MB) across runs. Keyed
+      # on the package-lock so a dependency bump invalidates it; the
+      # restore-keys fallback hits the most recent cache regardless of
+      # key. Cold runs hit PxWeb for ~5 minutes; warm runs finish in
+      # seconds. Submodule's cache module re-validates per entry, so a
+      # stale cache entry is safe — it'll just be re-fetched.
+      - name: Restore PxWeb cache
+        id: pxweb-cache
+        uses: actions/cache@v4
+        with:
+          path: cache-store.json
+          key: pxweb-cache-${{ hashFiles('package-lock.json', 'submodules/elections/**/election-tables.ts') }}
+          restore-keys: |
+            pxweb-cache-
+
+      - name: Run unit tests
+        run: npm test
+
+      - name: Build (prefetch + typecheck + vite build)
+        # 2>&1 | tee captures stdout+stderr to a file the next step
+        # can grep, while still streaming live to the Actions log.
+        run: npm run build 2>&1 | tee build.log
+
+      # The prefetch script always logs one of two summary lines: the
+      # normal "done — N with data, …" or, on a partial / killed run,
+      # an "EXIT code=…" line. Catch the EXIT variant explicitly so a
+      # silent crash on the runner doesn't ship a half-built dist.
+      - name: Sanity-check prefetch summary
+        run: |
+          if grep -q "\[prefetch\] EXIT" build.log; then
+            echo "::error::Prefetch reported a partial run — refusing to publish dist."
+            grep "\[prefetch\] EXIT" build.log
+            exit 1
+          fi
+          echo "Prefetch completed cleanly."
+
+      # Save the cache after a successful build so the next run starts
+      # warm. actions/cache@v4 saves on a hit, but we want it to save
+      # even when the cache key was a fallback miss. The action handles
+      # post-job save automatically via the `id`, so nothing to do here
+      # explicitly — included as a documentation step.
+      - name: Cache will save automatically (post-job)
+        run: echo "cache-store.json size $(du -h cache-store.json 2>/dev/null | cut -f1)"
+
+      # Force-push dist/ to the `dist` branch as a clean orphan
+      # commit. No history retained — branch always reflects the
+      # latest build. Server's `git fetch && git reset --hard
+      # origin/dist` handles the rewrite without conflict.
+      - name: Publish dist/ to dist branch
+        run: |
+          set -euo pipefail
+          cd dist
+          git init -q -b dist
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git remote add origin "https://x-access-token:${GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+          git add -A
+          git commit -q -m "build: ${GITHUB_SHA::7} from ${GITHUB_REF_NAME} (${GITHUB_RUN_ID})"
+          git push -f origin dist
+          echo "Published $(git rev-parse --short HEAD) to dist branch."
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
