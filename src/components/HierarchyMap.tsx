@@ -96,6 +96,24 @@ export function HierarchyMap({
   const [hoverId, setHoverId] = useState<string | null>(null);
   const svgRef = useRef<SVGSVGElement | null>(null);
 
+  // Touch / no-hover devices: drop the hover machinery entirely.
+  // iOS Safari fires `onMouseEnter` on first tap then competes
+  // with `onClick` on the second — leaves "stuck hover" labels
+  // hanging over the wrong region after navigation. With the
+  // ledger updating on tap (via `onPick`) the hover affordance is
+  // redundant on touch anyway.
+  const isTouch = useMemo(
+    () =>
+      typeof window !== "undefined" &&
+      typeof window.matchMedia === "function" &&
+      window.matchMedia("(hover: none)").matches,
+    [],
+  );
+  const setHoverIfPointer = (id: string | null): void => {
+    if (isTouch) return;
+    setHoverId(id);
+  };
+
   const { regions, viewBox } = useMemo<{
     regions: ProjectedFeature[];
     viewBox: string;
@@ -272,10 +290,11 @@ export function HierarchyMap({
               style={{ cursor: "pointer", transition: "stroke-width 120ms" }}
               onClick={() => onPick?.(r.id)}
               onDoubleClick={() => onZoomIn?.(r.id)}
-              onMouseEnter={() => setHoverId(r.id)}
-              onMouseLeave={() =>
-                setHoverId((prev) => (prev === r.id ? null : prev))
-              }
+              onMouseEnter={() => setHoverIfPointer(r.id)}
+              onMouseLeave={() => {
+                if (isTouch) return;
+                setHoverId((prev) => (prev === r.id ? null : prev));
+              }}
             >
               <title>{tooltip}</title>
             </path>
@@ -332,10 +351,11 @@ export function HierarchyMap({
                   style={{ cursor: "pointer", transition: "stroke-width 120ms" }}
                   onClick={() => onPick?.(HEL_ID)}
                   onDoubleClick={() => onZoomIn?.(HEL_ID)}
-                  onMouseEnter={() => setHoverId(HEL_ID)}
-                  onMouseLeave={() =>
-                    setHoverId((prev) => (prev === HEL_ID ? null : prev))
-                  }
+                  onMouseEnter={() => setHoverIfPointer(HEL_ID)}
+                  onMouseLeave={() => {
+                    if (isTouch) return;
+                    setHoverId((prev) => (prev === HEL_ID ? null : prev));
+                  }}
                   role="button"
                   aria-label={
                     getTooltip
