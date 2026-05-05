@@ -670,6 +670,7 @@ function ChipPill({
             e.stopPropagation();
             onRemove();
           }}
+          className="chip-remove"
           style={{ opacity: 0.7, fontSize: 11, cursor: "pointer" }}
         >
           ✕

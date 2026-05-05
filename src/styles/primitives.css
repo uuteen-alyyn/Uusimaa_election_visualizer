@@ -246,3 +246,74 @@
   font-size: 16px;
   color: rgba(0, 0, 0, 0.5);
 }
+
+/* ─── Mobile touch targets ─────────────────────────────────── */
+
+/* Bumps the small interactive primitives up to comfortable
+   thumb sizes. iOS HIG calls for 44 px; we sit at ~38-40 px so
+   dense controls (bar rows, dropdowns) don't blow up vertically.
+   Native <select>s pick up the 16px minimum to suppress iOS
+   Safari's auto-zoom-on-focus. */
+@media (max-width: 640px) {
+  .pill {
+    padding: 8px 14px;
+    min-height: 38px;
+    font-size: 14px;
+    gap: 8px;
+  }
+  /* Inline pills inside a flex toggle row (Kunta / HVA, framing
+     tabs, compareMode tabs) — relax the min-height so the row
+     doesn't dwarf the rest. */
+  .pill[role="button"][aria-pressed],
+  .pill.compact {
+    min-height: 32px;
+    padding: 6px 12px;
+    font-size: 13px;
+  }
+  .swatch {
+    width: 14px;
+    height: 14px;
+  }
+  .dot {
+    width: 12px;
+    height: 12px;
+  }
+  .bar-row {
+    gap: 10px;
+    margin: 6px 0;
+  }
+  .bar {
+    height: 12px;
+  }
+  /* Native form controls: 16 px font-size disables iOS Safari's
+     focus-zoom. `!important` overrides the inline `font-size: 13`
+     that ElectionPicker / MittariDropdown / FramingTabs set —
+     this is targeted to mobile + a known platform quirk, not a
+     stylistic decision. */
+  select,
+  input[type="text"],
+  input[type="search"] {
+    font-size: 16px !important;
+    padding: 8px 12px !important;
+  }
+  /* The action-row pills (Jaa / Lataa / Käyttöohjeet) carry
+     emoji + label and benefit from the same hit-area bump. */
+  .crumb {
+    font-size: 15px;
+    gap: 10px;
+  }
+  /* Chip remove (✕) inside the formula composer — was 11 px,
+     barely visible let alone tappable. Bumped here rather than
+     via inline style so desktop stays compact. !important
+     overrides the inline `fontSize: 11`. */
+  .chip-remove {
+    font-size: 16px !important;
+    padding: 4px 8px !important;
+    min-width: 28px;
+    min-height: 28px;
+    display: inline-flex !important;
+    align-items: center;
+    justify-content: center;
+    opacity: 0.85 !important;
+  }
+}
