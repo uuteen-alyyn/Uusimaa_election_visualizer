@@ -14,7 +14,10 @@
  * Phase 4 adds the candidates list.
  */
 
+import { useState } from "react";
+
 import { PARTIES, PARTY_BY_ID } from "../data/catalog";
+import { useMatchMedia } from "../lib/use-match-media";
 import {
   KNOWN_PARTY_IDS,
   type Candidate,
@@ -92,7 +95,6 @@ export function Ledger({
         />
       ) : null}
       <PartyShares result={result} loading={loading} />
-      <CandidatesList result={result} loading={loading} />
     </aside>
   );
 }
@@ -304,29 +306,110 @@ function PartyShares({
   result: RegionResult | null;
   loading: boolean;
 }): JSX.Element {
+  // Vertical space is precious on mobile, plentiful on desktop.
+  // Default the party-results section open everywhere (most-
+  // useful info), but default the nested candidate list closed
+  // on mobile so the user opts into seeing the long list.
+  const isCompact = useMatchMedia("(max-width: 640px)");
+  const [partyOpen, setPartyOpen] = useState(true);
+  const [candidatesOpen, setCandidatesOpen] = useState(!isCompact);
+  const cands = result?.candidates ?? [];
+  const hasCandidates = !loading && cands.length > 0;
+
   return (
-    <div
+    <div style={{ padding: "12px 18px" }}>
+      <CollapsibleHeader
+        label="Kannatus"
+        open={partyOpen}
+        onToggle={() => setPartyOpen((o) => !o)}
+      />
+      {partyOpen ? (
+        <>
+          {loading || !result ? (
+            <PartyShareSkeleton />
+          ) : (
+            <PartyShareBars result={result} />
+          )}
+          {hasCandidates ? (
+            <div
+              style={{
+                marginTop: 14,
+                paddingTop: 12,
+                borderTop: "var(--border-default) dashed var(--hair)",
+              }}
+            >
+              <CollapsibleHeader
+                label="Eniten ääniä saaneet ehdokkaat"
+                open={candidatesOpen}
+                onToggle={() => setCandidatesOpen((o) => !o)}
+              />
+              {candidatesOpen ? <CandidatesList candidates={cands} /> : null}
+            </div>
+          ) : null}
+        </>
+      ) : null}
+    </div>
+  );
+}
+
+/** Section header with a chevron toggle. The whole bar is the
+ *  hit target so it's easy to thumb on mobile; on desktop a
+ *  click anywhere on the title flips the section. */
+function CollapsibleHeader({
+  label,
+  open,
+  onToggle,
+}: {
+  label: string;
+  open: boolean;
+  onToggle: () => void;
+}): JSX.Element {
+  return (
+    <button
+      type="button"
+      onClick={onToggle}
+      aria-expanded={open}
       style={{
-        padding: "12px 18px",
+        display: "flex",
+        width: "100%",
+        alignItems: "center",
+        justifyContent: "space-between",
+        gap: 8,
+        background: "transparent",
+        border: "none",
+        padding: "4px 0",
+        marginBottom: open ? 8 : 0,
+        cursor: "pointer",
+        font: "inherit",
+        color: "var(--ink)",
+        textAlign: "left",
       }}
     >
-      <div
+      <span
         style={{
           fontSize: 11,
           opacity: 0.6,
           textTransform: "uppercase",
           letterSpacing: 0.5,
-          marginBottom: 8,
         }}
       >
-        Kannatus
-      </div>
-      {loading || !result ? (
-        <PartyShareSkeleton />
-      ) : (
-        <PartyShareBars result={result} />
-      )}
-    </div>
+        {label}
+      </span>
+      <span
+        aria-hidden="true"
+        style={{
+          fontSize: 12,
+          opacity: 0.55,
+          transform: open ? "rotate(0deg)" : "rotate(-90deg)",
+          transition: "transform 120ms",
+          display: "inline-block",
+          width: 14,
+          textAlign: "center",
+        }}
+      >
+        ▾
+      </span>
+    </button>
   );
 }
 
@@ -401,50 +484,29 @@ function PartyShareBars({ result }: { result: RegionResult }): JSX.Element {
 
 /* ─── Candidates list ───────────────────────────────────────── */
 
+/** Scrollable candidate rows. Header + collapsible wrapper live
+ *  in `PartyShares` (the candidate list is nested under the
+ *  party-results toggle); this component is just the list body. */
 function CandidatesList({
-  result,
-  loading,
+  candidates,
 }: {
-  result: RegionResult | null;
-  loading: boolean;
-}): JSX.Element | null {
-  if (loading) return null;
-  const cands = result?.candidates ?? [];
-  if (cands.length === 0) return null;
-
+  candidates: ReadonlyArray<Candidate>;
+}): JSX.Element {
   return (
     <div
+      role="list"
       style={{
-        padding: "12px 18px",
-        borderTop: "var(--border-default) dashed var(--hair)",
+        display: "flex",
+        flexDirection: "column",
+        gap: 2,
+        maxHeight: 280,
+        overflowY: "auto",
+        paddingRight: 4,
       }}
     >
-      <div
-        style={{
-          fontSize: 11,
-          opacity: 0.6,
-          textTransform: "uppercase",
-          letterSpacing: 0.5,
-          marginBottom: 8,
-        }}
-      >
-        Eniten ääniä saaneet ehdokkaat
-      </div>
-      <div
-        role="list"
-        style={{
-          display: "flex",
-          flexDirection: "column",
-          gap: 2,
-          maxHeight: 280,
-          overflowY: "auto",
-          paddingRight: 4,
-        }}
-      >
-        {cands.map((c, i) => (
-          <CandidateRow key={c.id} rank={i + 1} candidate={c} />
-        ))}
-      </div>
+      {candidates.map((c, i) => (
+        <CandidateRow key={c.id} rank={i + 1} candidate={c} />
+      ))}
     </div>
   );
 }

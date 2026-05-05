@@ -13,8 +13,9 @@
  * `RegionResult`, `formula`, or `refResult`.
  */
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 
+import { useMatchMedia } from "../lib/use-match-media";
 import {
   AA_VIEWBOX,
   COUNTRY_VIEWBOX,
@@ -596,21 +597,3 @@ function AaListView({
   );
 }
 
-/** Reactive matchMedia. Returns the current `.matches` value and
- *  re-renders when it flips. SSR-safe — the initial pass on a
- *  server / pre-mount returns `false`; the first effect tick
- *  updates with the real value once the window exists. */
-function useMatchMedia(query: string): boolean {
-  const [matches, setMatches] = useState(false);
-  useEffect(() => {
-    if (typeof window === "undefined" || typeof window.matchMedia !== "function") {
-      return;
-    }
-    const mql = window.matchMedia(query);
-    setMatches(mql.matches);
-    const listener = (e: MediaQueryListEvent): void => setMatches(e.matches);
-    mql.addEventListener("change", listener);
-    return () => mql.removeEventListener("change", listener);
-  }, [query]);
-  return matches;
-}

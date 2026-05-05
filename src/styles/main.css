@@ -179,6 +179,14 @@ select:focus-visible {
     grid-template-columns: 1fr;
   }
   .col-left > aside {
+    /* Drop the desktop's `flex: 1 1 0; min-height: 0; overflow-y:
+       auto`. In a flex column without an outer height constraint
+       (which the stacked layout removes), `flex-basis: 0` collapses
+       the aside to zero height — that's the "missing party results"
+       symptom on mobile. Sizing to content here lets the page-level
+       scroll handle overflow instead. */
+    flex: 0 0 auto;
+    min-height: auto;
     overflow-y: visible;
   }
   /* Map switches from "fill column height" to "fill column width"
