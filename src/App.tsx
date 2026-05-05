@@ -364,6 +364,24 @@ export function App(): JSX.Element {
   const [compareMode, setCompareMode] = useState<CompareMode>(
     initial?.compareMode ?? "pp",
   );
+  /** Äänestysalue view mode — `"map"` = SVG square grid (the
+   *  default on desktop), `"list"` = scrollable rows with swatch
+   *  + label (the default on mobile-narrow viewports because
+   *  Helsinki's 167 squares are finger-untappable at phone width).
+   *  User can flip via a toggle visible only when `level === "aa"`. */
+  const [aaViewMode, setAaViewMode] = useState<"map" | "list">("map");
+  // First time the user hits AA level on a narrow viewport, flip
+  // the default to list. Doesn't override a user choice — once
+  // they've toggled, that wins. The matchMedia listener also
+  // handles a desktop user dragging the window narrow.
+  useEffect(() => {
+    if (level !== "aa") return;
+    if (typeof window === "undefined" || typeof window.matchMedia !== "function") {
+      return;
+    }
+    const mql = window.matchMedia("(max-width: 640px)");
+    if (mql.matches) setAaViewMode((prev) => (prev === "map" ? "list" : prev));
+  }, [level]);
   /** kunta → HVA mapping loaded once from /data/kunta-hva.json. Null
    *  while the fetch is in-flight or if the file is missing (older
    *  deploy). */
@@ -1433,6 +1451,48 @@ export function App(): JSX.Element {
             />
           ) : (
             <div className="map-frame">
+              {/* Map / Lista toggle — visible only at AA level
+                  where the dense square grid is hard on touch.
+                  Sticks to the top-left of the map frame so it
+                  doesn't compete with the Lisäasetukset / actions
+                  rows. */}
+              {level === "aa" ? (
+                <div
+                  style={{
+                    position: "absolute",
+                    top: 4,
+                    left: 4,
+                    zIndex: 5,
+                    display: "inline-flex",
+                    gap: 4,
+                    background: "var(--paper-2)",
+                    border: "var(--border-thin) solid var(--line)",
+                    borderRadius: "var(--radius-pill)",
+                    padding: 3,
+                    boxShadow: "var(--shadow-soft)",
+                  }}
+                >
+                  {(["map", "list"] as const).map((m) => (
+                    <span
+                      key={m}
+                      role="button"
+                      tabIndex={0}
+                      aria-pressed={aaViewMode === m}
+                      className={"pill " + (aaViewMode === m ? "on" : "")}
+                      onClick={() => setAaViewMode(m)}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter" || e.key === " ") {
+                          e.preventDefault();
+                          setAaViewMode(m);
+                        }
+                      }}
+                      style={{ cursor: "pointer", fontSize: 11, padding: "2px 10px" }}
+                    >
+                      {m === "map" ? "Kartta" : "Lista"}
+                    </span>
+                  ))}
+                </div>
+              ) : null}
               <HierarchyMap
                 geometry={geometry}
                 level={level}
@@ -1444,6 +1504,7 @@ export function App(): JSX.Element {
                 getTooltip={getTooltip}
                 onPick={onPick}
                 onZoomIn={onZoomIn}
+                aaListMode={level === "aa" && aaViewMode === "list"}
               />
             </div>
           )}

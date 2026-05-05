@@ -13,7 +13,7 @@
  * `RegionResult`, `formula`, or `refResult`.
  */
 
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 import {
   AA_VIEWBOX,
@@ -54,6 +54,13 @@ export interface HierarchyMapProps {
   onPick?: (regionId: string) => void;
   /** Double-click on a region — drill in. */
   onZoomIn?: (regionId: string) => void;
+  /** When `level === "aa"` and this is `true`, render the
+   *  alternative scrollable-list view instead of the dense
+   *  square-grid SVG. Helsinki's 167 AA squares are
+   *  finger-untappable; the list trades the spatial encoding
+   *  for guaranteed-tap-target rows. App.tsx flips this on by
+   *  default when the viewport is mobile-narrow. */
+  aaListMode?: boolean;
 }
 
 const VP_VIEWBOX = COUNTRY_VIEWBOX; // "60 30 300 610"
@@ -92,6 +99,7 @@ export function HierarchyMap({
   getTooltip,
   onPick,
   onZoomIn,
+  aaListMode = false,
 }: HierarchyMapProps): JSX.Element {
   const [hoverId, setHoverId] = useState<string | null>(null);
   const svgRef = useRef<SVGSVGElement | null>(null);
@@ -102,13 +110,13 @@ export function HierarchyMap({
   // hanging over the wrong region after navigation. With the
   // ledger updating on tap (via `onPick`) the hover affordance is
   // redundant on touch anyway.
-  const isTouch = useMemo(
-    () =>
-      typeof window !== "undefined" &&
-      typeof window.matchMedia === "function" &&
-      window.matchMedia("(hover: none)").matches,
-    [],
-  );
+  const isTouch = useMatchMedia("(hover: none)");
+  // Mobile-or-narrow viewport — drives the Helsinki callout
+  // sizing and (in App.tsx) defaults the AA-level view to the
+  // list rather than the dense SVG square grid. Reactive via the
+  // matchMedia change listener so a desktop user dragging the
+  // window narrow / a phone rotating get the right layout.
+  const isCompact = useMatchMedia("(max-width: 640px)");
   const setHoverIfPointer = (id: string | null): void => {
     if (isTouch) return;
     setHoverId(id);
@@ -133,6 +141,23 @@ export function HierarchyMap({
     const list = parentSlug ? (geometry.kunnat[parentSlug] ?? []) : [];
     return { regions: list, viewBox: KUNTA_VIEWBOX };
   }, [geometry, level, parentSlug, aaFeatures, hvaFeatures]);
+
+  // List-view early branch for AA level. Trades the spatial-grid
+  // SVG for a tall scrollable list of AAs whose row-height
+  // guarantees a 44 px+ tap target. Reuses the same `getFill` so
+  // the swatch beside each row matches the map color.
+  if (level === "aa" && aaListMode) {
+    return (
+      <AaListView
+        features={regions}
+        selected={selected}
+        getFill={getFill}
+        getTooltip={getTooltip}
+        onPick={onPick}
+        onZoomIn={onZoomIn}
+      />
+    );
+  }
 
   // Label-visibility rule:
   //   vp:    every region gets a label (only 13–14 regions)
@@ -323,9 +348,13 @@ export function HierarchyMap({
             // position so the leader line is short and the callout
             // reads as "this little square is part of the country
             // map" rather than a free-floating legend.
+            // Bumped on compact viewports — the SVG renders smaller
+            // there so the same viewBox-unit size translates to a
+            // smaller CSS pixel hit area; an extra ~10 viewBox-
+            // units lifts mobile thumb-tap comfort to ~36 CSS px.
+            const sqSize = isCompact ? 28 : 18;
             const sqX = 245;
-            const sqY = 600;
-            const sqSize = 18;
+            const sqY = isCompact ? 590 : 600;
             const sqCy = sqY + sqSize / 2;
             return (
               <g pointerEvents="auto">
@@ -372,7 +401,7 @@ export function HierarchyMap({
                   y={sqCy}
                   textAnchor="start"
                   dominantBaseline="middle"
-                  fontSize={11}
+                  fontSize={isCompact ? 14 : 11}
                   fontFamily="Architects Daughter, system-ui"
                   fill="var(--ink)"
                   pointerEvents="none"
@@ -440,4 +469,148 @@ export function HierarchyMap({
       })}
     </svg>
   );
+}
+
+/** Mobile-friendly list view for AA level. Renders one row per
+ *  AA with a swatch (color matches the map fill), the friendly
+ *  label, and the per-row tooltip text packed into a small
+ *  caption. Tap selects, double-tap is a no-op (AA is the leaf
+ *  level — no further drill). Row height is generous (~52 px)
+ *  so the user's thumb hits the right one without zoom.
+ *
+ *  Lives here rather than App.tsx because it's a peer of
+ *  HierarchyMap (same SSR / CSR contract, same prop shape). */
+function AaListView({
+  features,
+  selected,
+  getFill,
+  getTooltip,
+  onPick,
+  onZoomIn,
+}: {
+  features: ReadonlyArray<ProjectedFeature>;
+  selected: string | null;
+  getFill: (regionId: string) => string;
+  getTooltip?: (regionId: string, label: string) => string;
+  onPick?: (regionId: string) => void;
+  onZoomIn?: (regionId: string) => void;
+}): JSX.Element {
+  if (features.length === 0) {
+    return (
+      <div
+        style={{
+          padding: 16,
+          fontStyle: "italic",
+          color: "var(--ink)",
+          opacity: 0.6,
+          fontSize: 14,
+        }}
+      >
+        Ei äänestysalueita.
+      </div>
+    );
+  }
+  return (
+    <div
+      role="listbox"
+      aria-label="Äänestysalueet"
+      style={{
+        width: "100%",
+        height: "100%",
+        maxHeight: "60dvh",
+        overflowY: "auto",
+        border: "var(--border-default) solid var(--line)",
+        borderRadius: "var(--radius-card)",
+        background: "var(--paper)",
+      }}
+    >
+      {features.map((f) => {
+        const isSel = selected === f.id;
+        const tooltip = getTooltip ? getTooltip(f.id, f.label) : f.label;
+        return (
+          <div
+            key={f.id}
+            role="option"
+            aria-selected={isSel}
+            onClick={() => onPick?.(f.id)}
+            onDoubleClick={() => onZoomIn?.(f.id)}
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: 12,
+              padding: "10px 14px",
+              borderBottom: "1px dotted var(--hair)",
+              background: isSel ? "rgba(0,0,0,0.06)" : "transparent",
+              cursor: "pointer",
+              minHeight: 52,
+            }}
+          >
+            <span
+              aria-hidden="true"
+              style={{
+                width: 18,
+                height: 18,
+                borderRadius: 3,
+                border: "1px solid rgba(0,0,0,0.3)",
+                background: getFill(f.id),
+                flexShrink: 0,
+              }}
+            />
+            <span
+              style={{
+                flex: 1,
+                minWidth: 0,
+                display: "flex",
+                flexDirection: "column",
+                gap: 2,
+              }}
+            >
+              <span
+                style={{
+                  fontSize: 14,
+                  fontWeight: isSel ? 700 : 400,
+                  whiteSpace: "nowrap",
+                  overflow: "hidden",
+                  textOverflow: "ellipsis",
+                }}
+              >
+                {f.label}
+              </span>
+              <span
+                style={{
+                  fontSize: 11,
+                  opacity: 0.65,
+                  fontFamily: "var(--font-mono)",
+                  whiteSpace: "nowrap",
+                  overflow: "hidden",
+                  textOverflow: "ellipsis",
+                }}
+              >
+                {tooltip}
+              </span>
+            </span>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+/** Reactive matchMedia. Returns the current `.matches` value and
+ *  re-renders when it flips. SSR-safe — the initial pass on a
+ *  server / pre-mount returns `false`; the first effect tick
+ *  updates with the real value once the window exists. */
+function useMatchMedia(query: string): boolean {
+  const [matches, setMatches] = useState(false);
+  useEffect(() => {
+    if (typeof window === "undefined" || typeof window.matchMedia !== "function") {
+      return;
+    }
+    const mql = window.matchMedia(query);
+    setMatches(mql.matches);
+    const listener = (e: MediaQueryListEvent): void => setMatches(e.matches);
+    mql.addEventListener("change", listener);
+    return () => mql.removeEventListener("change", listener);
+  }, [query]);
+  return matches;
 }
