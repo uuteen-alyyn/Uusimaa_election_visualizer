@@ -56,8 +56,10 @@ select:focus-visible {
 
 .page {
   /* Strict viewport height with a flex-column inside so the
-     dashboard cell fills whatever space the chrome leaves. */
-  height: 100vh;
+     dashboard cell fills whatever space the chrome leaves.
+     `100dvh` (dynamic viewport height) honours iOS Safari's
+     collapsing URL bar — `100vh` would push content under it. */
+  height: 100dvh;
   display: flex;
   flex-direction: column;
   padding: 16px 24px 12px;
@@ -160,8 +162,9 @@ select:focus-visible {
   }
 }
 
-/* Stacked fallback for narrow / mobile-ish screens. Mobile is out
-   of scope but the soft fallback keeps the app usable. */
+/* Stacked layout for narrow / tablet / mobile screens. Three
+   sections in vertical order: title + Vaali/Mittari + ledger,
+   then map, then right-column controls + legend. */
 @media (max-width: 1100px) {
   html,
   body {
@@ -177,5 +180,47 @@ select:focus-visible {
   }
   .col-left > aside {
     overflow-y: visible;
+  }
+  /* Map switches from "fill column height" to "fill column width"
+     when stacked — capped at 60dvh so the ledger underneath stays
+     reachable without an arm's-length scroll. */
+  .col-center .map-frame {
+    flex: 0 0 auto;
+    width: 100%;
+    max-height: 60dvh;
+  }
+  .col-center .map-frame > svg {
+    width: 100%;
+    height: auto;
+    max-height: 60dvh;
+  }
+}
+
+/* Mobile-specific tuning. 640px catches every standard phone
+   (iPhone Pro Max is 430px, Pixel 7 is 412px) without dragging
+   tablets in. Touch-target + font-size work lives in
+   primitives.css under the same breakpoint; layout / spacing
+   tweaks belong here. */
+@media (max-width: 640px) {
+  .page {
+    padding: 12px 12px 8px;
+    gap: 8px;
+  }
+  .col {
+    gap: 8px;
+  }
+  .col-left h1 {
+    font-size: 22px;
+  }
+  /* Right-column actions wrap full-width on mobile rather than
+     pushing to the right edge — keeps Jaa/Lataa/Ohjeet centered
+     under the map. */
+  .col-right > .col-right-actions {
+    justify-content: center;
+  }
+  body {
+    /* Suppress iOS Safari's blue tap-flash; :focus-visible already
+       handles keyboard a11y separately. */
+    -webkit-tap-highlight-color: transparent;
   }
 }
