@@ -51,6 +51,137 @@ import type {
   ElectionType,
 } from "../submodules/elections/src/data/types";
 
+/* ─── PxWeb 2026-06-08 migration shim ─────────────────────────── */
+//
+// On 2026-06-08 Tilastokeskus migrated its ACTIVE PxWeb databases
+// (`StatFin/…`): table ids were SHORTENED (`statfin_evaa_pxt_13t2` →
+// `13t2`) and every variable got a generated code replacing its name
+// (`Vuosi` → `timeperiod_y`, `Tiedot` → `contentscode`, `Puolue` →
+// `puolue_4_…`). The pinned submodule + this script query by the OLD
+// names + long ids, so every active-db request started returning 400.
+// The ARCHIVE database (`StatFin_Passiivi`) was NOT migrated.
+// Ref: https://stat.fi/en/news/Changes-to-interface-use-of-PxWeb-databases-on-8-June-change-interface-queries-as-instructed
+//
+// Rather than rewrite every query, we wrap `pxwebClient` so the change
+// is invisible to all callers: active long ids are shortened, and
+// variable codes are translated old-name↔new-code at the request and
+// response boundary — matched by the variable's `text`, which still
+// carries the old human name ("Vuosi", "Puolue", …). Value codes
+// (`SSS`, `VP01`, `evaa_aanet`, …) were not migrated, so they pass
+// through. Archive tables pass through entirely.
+
+const _origGetTableMetadata = pxwebClient.getTableMetadata.bind(pxwebClient);
+const _origQueryTable = pxwebClient.queryTable.bind(pxwebClient);
+
+/** `statfin_{db}_pxt_{code}` (active) → `{code}`. Archive ids
+ *  (`statfinpas_…`, `NNN_…_tau_…`, already-short) are left untouched. */
+function shortenActiveTableId(id: string): string {
+  return /^statfin_[a-z]+_pxt_/.test(id)
+    ? id.replace(/^statfin_[a-z]+_pxt_/, "")
+    : id;
+}
+
+interface VarCodeMaps {
+  toNew: Map<string, string>; // old name / text  → real (new) code
+  toOld: Map<string, string>; // real (new) code  → old name / text
+  valuesByCode: Map<string, string[]>; // real (new) var code → its value codes
+  meta: Awaited<ReturnType<typeof _origGetTableMetadata>>;
+}
+const _varCodeMaps = new Map<string, VarCodeMaps>();
+
+async function _loadVarCodeMaps(
+  database: string,
+  shortId: string,
+  levels: string[],
+): Promise<VarCodeMaps> {
+  const key = `${database}|${levels.join("/")}|${shortId}`;
+  const cached = _varCodeMaps.get(key);
+  if (cached) return cached;
+  const meta = await _origGetTableMetadata(database, shortId, ...levels);
+  const toNew = new Map<string, string>();
+  const toOld = new Map<string, string>();
+  const valuesByCode = new Map<string, string[]>();
+  for (const v of meta.variables) {
+    toNew.set(v.text, v.code);
+    toNew.set(v.code, v.code); // identity for already-new / unchanged codes
+    toOld.set(v.code, v.text);
+    valuesByCode.set(v.code, v.values);
+  }
+  const maps: VarCodeMaps = { toNew, toOld, valuesByCode, meta };
+  _varCodeMaps.set(key, maps);
+  return maps;
+}
+
+/** Resolve an old value code to the table's current one. Migration
+ *  prefixed some measure values per database (`aanet_yht` →
+ *  `kvaa-aanet_yht`); dimension values (SSS, VP01, …) were untouched.
+ *  Exact match first, then a `-`/`_`-bounded suffix match, then the
+ *  original (so unchanged values and `*` pass through). */
+function _matchValueCode(requested: string, actual: string[]): string {
+  if (requested === "*" || actual.includes(requested)) return requested;
+  const bounded = actual.find(
+    (a) => a.endsWith("-" + requested) || a.endsWith("_" + requested),
+  );
+  if (bounded) return bounded;
+  const loose = actual.find((a) => a.endsWith(requested));
+  return loose ?? requested;
+}
+
+pxwebClient.getTableMetadata = (async (
+  database: string,
+  tableId: string,
+  ...levels: string[]
+) => {
+  const short = shortenActiveTableId(tableId);
+  const { meta } = await _loadVarCodeMaps(database, short, levels);
+  // Present each variable under its OLD name (text) so existing
+  // `v.code === "Vuosi"` lookups + old-name query construction work.
+  return { ...meta, variables: meta.variables.map((v) => ({ ...v, code: v.text })) };
+}) as typeof pxwebClient.getTableMetadata;
+
+pxwebClient.queryTable = (async (
+  database: string,
+  tableId: string,
+  query: { query?: Array<{ code: string; selection: unknown }>; [k: string]: unknown },
+  ...levels: string[]
+) => {
+  const short = shortenActiveTableId(tableId);
+  const { toNew, toOld, valuesByCode } = await _loadVarCodeMaps(database, short, levels);
+  // Remembers new→old value-code swaps so we can reverse them on the
+  // response (the normaliser looks up content columns by the OLD value
+  // code, e.g. `aanet_yht`, but PxWeb returns the new `kvaa-aanet_yht`).
+  const valueBack = new Map<string, string>();
+  const translated = {
+    ...query,
+    query: (query.query ?? []).map((item) => {
+      const newCode = toNew.get(item.code) ?? item.code;
+      const sel = item.selection as
+        | { filter?: string; values?: string[] }
+        | undefined;
+      const actual = valuesByCode.get(newCode);
+      if (sel && Array.isArray(sel.values) && actual) {
+        const values = sel.values.map((v) => {
+          const nv = _matchValueCode(v, actual);
+          if (nv !== v) valueBack.set(nv, v);
+          return nv;
+        });
+        return { ...item, code: newCode, selection: { ...sel, values } };
+      }
+      return { ...item, code: newCode };
+    }),
+  };
+  const resp = await _origQueryTable(database, short, translated as never, ...levels);
+  // Map column codes back: key-dimension columns → old variable names,
+  // content columns → the old value code the normaliser expects.
+  if (Array.isArray(resp.columns)) {
+    resp.columns = resp.columns.map((c) => ({
+      ...c,
+      code: toOld.get(c.code) ?? valueBack.get(c.code) ?? c.code,
+    }));
+  }
+  return resp;
+}) as unknown as typeof pxwebClient.queryTable;
+
 /* ─── 429 retry wrapper ─────────────────────────────────────── */
 
 /** PxWeb's public throttle is more aggressive than the submodule's
