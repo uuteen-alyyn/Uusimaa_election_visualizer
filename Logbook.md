@@ -2517,3 +2517,60 @@ Implemented in `scripts/build-fixtures.ts`:
 - `npx vite build` — clean, 84.15 KB gz JS
 - Full population runs on CI (resumable; 10-min dev cap + throttle block
   a full local run).
+
+---
+
+## ENTRY incident: Tilastokeskus PxWeb API migration broke the prefetch 2026-06-08
+
+**What happened**
+
+Deploying the äänestysalue-candidate work surfaced a live upstream
+breakage. Tilastokeskus migrated its **active** PxWeb databases on
+2026-06-08 (their announcement:
+https://stat.fi/en/news/Changes-to-interface-use-of-PxWeb-databases-on-8-June-change-interface-queries-as-instructed):
+
+1. Table ids shortened: `statfin_evaa_pxt_13t2` → `13t2`.
+2. Variable codes replaced names: `Vuosi` → `timeperiod_y`, `Tiedot` →
+   `contentscode`, `Puolue`/`Sukupuoli` → generated codes (the human name
+   moved to `text`; some texts also changed, e.g. the area variable).
+3. Some measure value codes were db-prefixed: `aanet_yht` →
+   `kvaa-aanet_yht` (non-uniform — evaa unchanged, kvaa/alvaa prefixed).
+
+Archive db (`StatFin_Passiivi`) was **not** migrated. The pinned submodule
+(`fc547e2`) queried by the old ids/names → every active-db fetch returned
+400, so the first CI build produced a degraded 13/14-`no_data` dist that
+still "succeeded" and published (`c2c29a1`). Live site unaffected (server
+hadn't pulled).
+
+**Fixes (all on `main`)**
+
+- **Sanity-check** now refuses to publish unless ≥12 elections carry data
+  (was: only blocked the OOM `EXIT` line); logs per-election coverage.
+  (`a84d7a2`)
+- **PxWeb migration shim** wrapping `pxwebClient` (`f03915a`): shortens
+  active ids; translates variable codes old-name↔new-code by `text`;
+  translates measure value codes old↔new on request and reverses them on
+  the response. Archive passes through. Validated cold against the live
+  new API — parliamentary/municipal/eu/regional party fetches return full
+  äänestysalue data, shares ≈100 %.
+- **Resumable build** (`dccbb47`, `c62e85a`): migration-day throttle is
+  severe (~10 s+/query), so a cold build can't finish ~1000+ AA queries in
+  one run. The build caches its output across runs, skips finished
+  elections (cached monolith + `.complete` marker) and finished kuntas
+  (existing side file), marks an election complete at ≥98 % kunta
+  coverage, and **self-limits to 320 min** (< the 350-min job timeout) so
+  it exits cleanly and the post-job cache save preserves progress. Each
+  re-run resumes; once a clean run finishes with ≥12 it publishes.
+
+**Status**
+
+- Root cause = upstream Tilastokeskus migration (their news post), not app
+  code; the same code is the Vihreä MCP, so the MCP is affected too.
+- Migration fix verified locally; CI build now converges across resuming
+  runs (or one run once Tilastokeskus's load subsides). `dist` stays at
+  the bad `c2c29a1` until a clean ≥12 build publishes — **server must not
+  pull until then.**
+- Production safe throughout (serving 05.05 data).
+
+**Build status**: typecheck clean (both); `npm test` 172/172; vite build
+84 KB gz.
