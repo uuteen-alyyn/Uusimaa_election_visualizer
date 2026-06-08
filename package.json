@@ -6,7 +6,7 @@
   "scripts": {
     "dev": "vite",
     "build": "npm run prefetch && npm run typecheck && vite build",
-    "prefetch": "node --max-old-space-size=4096 --expose-gc --import tsx scripts/build-fixtures.ts",
+    "prefetch": "node --max-old-space-size=8192 --expose-gc --import tsx scripts/build-fixtures.ts",
     "preview": "vite preview",
     "test": "vitest run --passWithNoTests",
     "typecheck": "tsc --noEmit && tsc --noEmit -p tsconfig.scripts.json",
