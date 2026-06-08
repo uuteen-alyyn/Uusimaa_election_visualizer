@@ -233,6 +233,17 @@ async function pace(): Promise<void> {
   lastPaceAt = Date.now();
 }
 
+/* ─── Wall-clock budget (resumable runs) ────────────────────── */
+// Set in main(); checked between elections and between candidate units
+// so a throttled run stops CLEANLY before the CI job timeout (a
+// timed-out/cancelled job skips the post-job cache save, losing
+// progress). Default 320 min; PREFETCH_BUDGET_MIN overrides.
+let _prefetchStartMs = 0;
+let _budgetMs = Number.POSITIVE_INFINITY;
+function overBudget(): boolean {
+  return Date.now() - _prefetchStartMs > _budgetMs;
+}
+
 /* ─── Election-type bridge ──────────────────────────────────── */
 
 const TYPE_MAP: Record<ElectionTypeId, ElectionType> = {
@@ -1672,6 +1683,15 @@ async function buildAaCandidateSideFiles(
   let aaCount = 0;
 
   for (const unitKey of unitKeys) {
+    // Stop cleanly between units when the time budget is spent — already
+    // written kunta files are cached, no marker is written (coverage will
+    // be <98%), and the next run resumes the remaining units/kuntas.
+    if (overBudget()) {
+      console.warn(
+        `[prefetch]   ${electionId}: time budget reached mid-aa-candidates — ${doneKuntas.size} kuntat done so far; re-run to continue`,
+      );
+      break;
+    }
     let rows: ElectionRecord[];
     try {
       rows = await loadAaCandidatesForUnit(unitKey, electionType, year, doneKuntas);
@@ -3043,7 +3063,21 @@ async function main(): Promise<void> {
     console.log(`[prefetch] wrote kunta-hva.json (${Object.keys(hvaMapping.kuntaToHva).length} kuntat)`);
   }
 
+  // Self-imposed wall-clock budget (see overBudget). Stop cleanly before
+  // the CI job timeout so the post-job cache save runs and progress is
+  // preserved for the next (resuming) run.
+  _prefetchStartMs = Date.now();
+  _budgetMs = (Number(process.env.PREFETCH_BUDGET_MIN) || 320) * 60_000;
+  let budgetHit = false;
+
   for (const e of ELECTIONS) {
+    if (overBudget()) {
+      budgetHit = true;
+      console.warn(
+        `[prefetch] time budget (${_budgetMs / 60000} min) reached — stopping cleanly so progress is cached; re-run to continue`,
+      );
+      break;
+    }
     progress.attempted += 1;
     try {
       const fixture = await buildFixture(e.id, e.typeId, e.year, hvaMapping);
@@ -3097,7 +3131,7 @@ async function main(): Promise<void> {
 
   const totalKb = (progress.totalBytes / 1024).toFixed(1);
   console.log(
-    `[prefetch] done — ${progress.withData} with data, ` +
+    `[prefetch] ${budgetHit ? "stopped (time budget) — partial" : "done"} — ${progress.withData} with data, ` +
       `${progress.withoutData} no_data, ${progress.failed} failed, ` +
       `${totalKb} KB total`,
   );
