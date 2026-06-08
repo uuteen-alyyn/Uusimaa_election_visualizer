@@ -30,7 +30,10 @@ permissions:
 jobs:
   build:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    # Raised from 20 → 60: the prefetch now also downloads per-äänestysalue
+    # candidate data (hundreds of small, PxWeb-rate-limited queries). A
+    # cold run needs the headroom; warm runs (cache hit) still finish fast.
+    timeout-minutes: 60
     steps:
       - name: Checkout (with submodules)
         uses: actions/checkout@v4

@@ -5,6 +5,12 @@ live and keeping it refreshed. Supersedes `deploy.md` where they differ
 (timing, disk size, smoke test, operational notes have changed as of the
 äänestysalue-candidate work).
 
+> **Already set up on the Hetzner box** (since 2026-05-05): DNS, the
+> on-disk checkout at **`/opt/vaalikartta`**, and the Caddy block are in
+> place. For an existing deployment you only need the **Refresh
+> procedure (§6)** — skip §3–§5 (first-time setup). Adjust the example
+> paths below (`/opt/vaalit…`) to the box's actual `/opt/vaalikartta…`.
+
 ---
 
 ## 1. How it works (read first)
