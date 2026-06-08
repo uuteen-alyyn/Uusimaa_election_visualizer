@@ -36,7 +36,6 @@ import type { FixtureFile } from "../src/data/elections-source";
 
 import { loadPartyResults } from "../submodules/elections/src/data/loaders";
 import { pxwebClient } from "../submodules/elections/src/api/pxweb-client";
-import { withCache } from "../submodules/elections/src/cache/cache";
 import {
   normalizeCandidateByAanestysalue,
   normalizePartyTable,
@@ -1131,22 +1130,20 @@ async function loadCandidatesForUnit(
     selection: { filter: "item", values: [votesCode] },
   });
 
-  const cacheKey = `vaalit:cand:${tableId}:${electionType}:${year}:${unitKey}`;
   let response;
   try {
-    const wrapped = await withCache(
-      cacheKey,
-      () =>
-        withRetry(async () => {
-          await pace();
-          return pxwebClient.queryTable(dbPath, tableId, {
-            query: filters,
-            response: { format: "json" as const },
-          });
-        }, `cand-query ${tableId} (${unitKey})`),
-      24 * 60 * 60 * 1000,
-    );
-    response = wrapped.value;
+    // NOT routed through withCache: these candidate responses are huge
+    // (municipal vp tables return ~140k rows), and the submodule cache
+    // re-serialises its whole in-memory store to disk after every set,
+    // which thrashes the heap and OOM-kills the build. Cross-run resume
+    // is handled by the built-output cache instead.
+    response = await withRetry(async () => {
+      await pace();
+      return pxwebClient.queryTable(dbPath, tableId, {
+        query: filters,
+        response: { format: "json" as const },
+      });
+    }, `cand-query ${tableId} (${unitKey})`);
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
     console.warn(
@@ -1343,21 +1340,17 @@ async function loadAaCandidatesForUnit(
     }
     filters.push({ code: tiedotVar.code, selection: { filter: "item", values: [votesCode] } });
 
-    const cacheKey = `vaalit:aacand:${tableId}:${electionType}:${year}:${unitKey}:${tag}`;
     try {
-      const wrapped = await withCache(
-        cacheKey,
-        () =>
-          withRetry(async () => {
-            await pace();
-            return pxwebClient.queryTable(dbPath, tableId, {
-              query: filters,
-              response: { format: "json" as const },
-            });
-          }, `aa-cand-query ${tableId} (${unitKey} ${tag})`),
-        24 * 60 * 60 * 1000,
-      );
-      return normalizeCandidateByAanestysalue(wrapped.value, metadata, year, electionType);
+      // Direct (not withCache) — see note in loadCandidatesForUnit;
+      // the built-output cache handles cross-run resume.
+      const resp = await withRetry(async () => {
+        await pace();
+        return pxwebClient.queryTable(dbPath, tableId, {
+          query: filters,
+          response: { format: "json" as const },
+        });
+      }, `aa-cand-query ${tableId} (${unitKey} ${tag})`);
+      return normalizeCandidateByAanestysalue(resp, metadata, year, electionType);
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
       console.warn(`[prefetch]   aa-candidates ${tableId} (${unitKey} ${tag}): ${msg}`);
@@ -1577,19 +1570,13 @@ async function buildEu2019AaParty(electionId: string): Promise<RegionResult[]> {
     }
     let resp;
     try {
-      const wrapped = await withCache(
-        `vaalit:eu2019aapt:${i}`,
-        () =>
-          withRetry(async () => {
-            await pace();
-            return pxwebClient.queryTable(dbPath, tableId, {
-              query: filters,
-              response: { format: "json" as const },
-            });
-          }, `eu2019 aa-party ${i}`),
-        24 * 60 * 60 * 1000,
-      );
-      resp = wrapped.value;
+      resp = await withRetry(async () => {
+        await pace();
+        return pxwebClient.queryTable(dbPath, tableId, {
+          query: filters,
+          response: { format: "json" as const },
+        });
+      }, `eu2019 aa-party ${i}`);
     } catch (e) {
       console.warn(`[prefetch]   eu2019 aa-party batch ${i}: ${(e as Error).message}`);
       continue;
