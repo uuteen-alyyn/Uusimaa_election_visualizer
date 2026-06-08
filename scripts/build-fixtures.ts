@@ -444,6 +444,36 @@ async function buildFixture(
 ): Promise<FixtureFile> {
   const electionType = TYPE_MAP[typeId];
 
+  // CI / re-run resume: historical results are immutable, so if a prior
+  // run (restored from the public/data cache) already produced a complete
+  // fixture for this election — a monolith with real data AND its AA
+  // candidates finished (the `.complete` marker, or no AA tables) — keep
+  // it and skip all fetching. Lets a throttled cold build accumulate
+  // across re-runs instead of restarting from scratch every time. Set
+  // `PREFETCH_FRESH=1` to force a full re-fetch (e.g. after a parser fix).
+  if (process.env.PREFETCH_FRESH !== "1") {
+    const monoPath = resolve(OUT_DIR, `${electionId}.json`);
+    if (existsSync(monoPath)) {
+      try {
+        const prev = JSON.parse(readFileSync(monoPath, "utf8")) as FixtureFile;
+        if (prev.areas && prev.areas.length > 0) {
+          const needsAa = unitKeysForCandidateTables(electionType, year).length > 0;
+          const aaDone =
+            !needsAa ||
+            existsSync(resolve(OUT_DIR, electionId, "aa-cands", ".complete"));
+          if (aaDone) {
+            console.log(
+              `[prefetch]   ${electionId}: reusing cached complete fixture (${prev.areas.length} areas) — skipping`,
+            );
+            return prev;
+          }
+        }
+      } catch {
+        /* unreadable cache → fall through and rebuild */
+      }
+    }
+  }
+
   if (electionType === "presidential") {
     // Round is encoded in the electionId suffix ("pres2024r1" → 1).
     const round = electionId.endsWith("r2") ? 2 : 1;
@@ -569,7 +599,15 @@ async function buildFixture(
     }
   }
   if (unitKeys.length > 0 && hasAaLevel) {
-    await buildAaCandidateSideFiles(electionId, unitKeys, electionType, year);
+    const expectedKuntas = new Set<string>();
+    for (const a of areas) if (a.parentKunta) expectedKuntas.add(a.parentKunta);
+    await buildAaCandidateSideFiles(
+      electionId,
+      unitKeys,
+      electionType,
+      year,
+      expectedKuntas,
+    );
   } else if (unitKeys.length > 0) {
     console.log(
       `[prefetch]   ${electionId}: candidate tables exist but no äänestysalue level could be built — skipping aa side files`,
@@ -1194,6 +1232,7 @@ async function loadAaCandidatesForUnit(
   unitKey: string,
   electionType: ElectionType,
   year: number,
+  doneKuntas?: ReadonlySet<string>,
 ): Promise<ElectionRecord[]> {
   const resolved = resolveAaCandidateTables(electionType, year);
   const tableId = resolved?.tables[unitKey];
@@ -1360,6 +1399,11 @@ async function loadAaCandidatesForUnit(
     else aaByKunta.set(k, [code]);
   }
   for (const [kunta, kuntaAa] of aaByKunta.entries()) {
+    // Resume: this kunta's side file already exists (restored from the
+    // public/data cache) → skip it. This is what lets the heavy
+    // municipal per-kunta fetch converge across throttled re-runs
+    // instead of re-fetching every kunta each time.
+    if (doneKuntas?.has(kunta)) continue;
     // Discover this kunta's candidate ids via the aggregate probe.
     const agg = kuntaAgg.get(kunta);
     const candIds = agg
@@ -1602,13 +1646,11 @@ async function buildAaCandidateSideFiles(
   unitKeys: string[],
   electionType: ElectionType,
   year: number,
+  expectedKuntas: ReadonlySet<string>,
 ): Promise<void> {
   const dir = resolve(OUT_DIR, electionId, "aa-cands");
   const marker = resolve(dir, ".complete");
   // Idempotent skip — a previous run already finished this election.
-  // Lets the server team re-run the prefetch after a rate-limit/OOM
-  // interruption and make forward progress without redoing finished
-  // elections (and without loading their data into memory at all).
   if (existsSync(marker)) {
     console.log(
       `[prefetch]   ${electionId}: aa-candidate side files already complete — skipping`,
@@ -1617,30 +1659,31 @@ async function buildAaCandidateSideFiles(
   }
   await mkdir(dir, { recursive: true });
 
-  let kuntaCount = 0;
+  // Resume: kuntas whose side file already exists (restored from the
+  // public/data cache) are skipped, so a throttled re-run only fetches
+  // the kuntas still missing — the heavy municipal fetch converges
+  // across runs instead of restarting.
+  const doneKuntas = new Set<string>();
+  for (const f of readdirSync(dir)) {
+    const m = /^(\d+)\.json$/.exec(f);
+    if (m) doneKuntas.add(m[1]!);
+  }
+
   let aaCount = 0;
-  let totalRows = 0;
-  let aaRows = 0;
-  let failedUnits = 0;
 
   for (const unitKey of unitKeys) {
     let rows: ElectionRecord[];
     try {
-      rows = await loadAaCandidatesForUnit(unitKey, electionType, year);
+      rows = await loadAaCandidatesForUnit(unitKey, electionType, year, doneKuntas);
     } catch {
       rows = [];
     }
-    totalRows += rows.length;
-    if (rows.length === 0) {
-      failedUnits++;
-      continue;
-    }
+    if (rows.length === 0) continue;
 
     // Group this unit's rows by aa area_id, sum + sort + cap per AA.
     const byAa = new Map<string, Map<string, Candidate>>();
     for (const r of rows) {
       if (r.area_level !== "aanestysalue") continue;
-      aaRows++;
       if (!r.candidate_id || !r.votes) continue;
       let cands = byAa.get(r.area_id);
       if (!cands) {
@@ -1684,34 +1727,35 @@ async function buildAaCandidateSideFiles(
       const json = JSON.stringify(payload);
       await writeFile(resolve(dir, `${kunta}.json`), json, "utf8");
       aaSideFileBytes += json.length;
-      kuntaCount++;
+      doneKuntas.add(kunta);
     }
     // Release the unit's working set before the next (V8 hint; the
     // prefetch runs with --expose-gc).
     if (typeof globalThis.gc === "function") globalThis.gc();
   }
 
-  if (kuntaCount === 0) {
+  // Coverage of the expected kuntas (the ones the monolith has AA rows
+  // for) determines completeness. Write the `.complete` marker only when
+  // (nearly) all are present — a throttled run that didn't reach every
+  // kunta leaves no marker, so the next run fills the gap. The small
+  // tolerance covers kuntas that legitimately have no candidate votes.
+  const expected = expectedKuntas.size;
+  const covered =
+    expected === 0
+      ? doneKuntas.size
+      : [...expectedKuntas].filter((k) => doneKuntas.has(k)).length;
+  const pct = expected > 0 ? covered / expected : doneKuntas.size > 0 ? 1 : 0;
+
+  if (doneKuntas.size === 0) {
     console.warn(
-      `[prefetch]   ${electionId}: 0 aa-candidate files — ${failedUnits}/${unitKeys.length} units returned no rows, ` +
-        `${totalRows} total rows, ${aaRows} aanestysalue rows. ` +
-        (totalRows === 0
-          ? "Likely rate-limited (all batches dropped) — re-run to retry."
-          : "Rows fetched but none grouped — check area_id format / parseParentKunta."),
+      `[prefetch]   ${electionId}: 0 aa-candidate files — likely rate-limited; re-run to retry.`,
     );
     return;
   }
-
-  // Mark complete only when every unit contributed — a partial run
-  // (some units rate-limited) leaves no marker, so a re-run retries it.
-  if (failedUnits === 0) {
-    await writeFile(marker, "", "utf8");
-  }
+  if (pct >= 0.98) await writeFile(marker, "", "utf8");
   console.log(
-    `[prefetch]   ${electionId}: aa-candidate side files → ${kuntaCount} kuntat, ${aaCount} äänestysaluetta` +
-      (failedUnits > 0
-        ? ` (${failedUnits}/${unitKeys.length} units missing — re-run to fill)`
-        : ""),
+    `[prefetch]   ${electionId}: aa-candidate side files → ${doneKuntas.size} kuntat, ${aaCount} new äänestysaluetta` +
+      ` (${(pct * 100).toFixed(0)}% of ${expected} expected${pct < 0.98 ? " — re-run to fill" : " ✓"})`,
   );
 }
 

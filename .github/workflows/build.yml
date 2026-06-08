@@ -30,10 +30,13 @@ permissions:
 jobs:
   build:
     runs-on: ubuntu-latest
-    # Raised from 20 → 60: the prefetch now also downloads per-äänestysalue
-    # candidate data (hundreds of small, PxWeb-rate-limited queries). A
-    # cold run needs the headroom; warm runs (cache hit) still finish fast.
-    timeout-minutes: 60
+    # The prefetch now also downloads per-äänestysalue candidate data
+    # (hundreds of small, PxWeb-rate-limited queries). On a cold run under
+    # heavy PxWeb throttling this can take hours; this is a public repo so
+    # Actions minutes are unmetered. The build is resumable (it caches its
+    # built output and skips already-finished elections/kuntas), so even
+    # if a run hits this ceiling the next one continues where it left off.
+    timeout-minutes: 350
     steps:
       - name: Checkout (with submodules)
         uses: actions/checkout@v4
@@ -67,6 +70,24 @@ jobs:
           key: pxweb-cache-${{ hashFiles('package-lock.json', 'submodules/elections/**/election-tables.ts') }}
           restore-keys: |
             pxweb-cache-
+
+      # Restore the BUILT fixtures (monoliths + per-kunta aa-cands side
+      # files + .complete markers) from the previous run. Under heavy
+      # PxWeb throttling a single run may not finish the ~1000+ AA-candidate
+      # queries; the prefetch is resumable — it reuses completed elections
+      # and per-kunta side files and only fetches what's still missing —
+      # so each run makes forward progress until a full build publishes.
+      # A unique key always saves a fresh snapshot; restore-keys grabs the
+      # latest. To force a clean rebuild, change `PREFETCH_FRESH` to 1 below.
+      - name: Restore built fixtures (resume)
+        uses: actions/cache@v4
+        with:
+          path: |
+            public/data/elections
+            public/data/kunta-hva.json
+          key: fixtures-${{ github.run_id }}
+          restore-keys: |
+            fixtures-
 
       - name: Run unit tests
         run: npm test
