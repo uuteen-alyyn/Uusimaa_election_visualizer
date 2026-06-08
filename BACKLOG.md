@@ -61,11 +61,54 @@ Format: priority emoji + short title + status note + date added.
 - **Some candidate fetches 429/403 once warmed up** — PxWeb's public
   rate limit is more aggressive than the submodule's 10 req/10 s
   client-side throttle. The prefetch retries on 429 (3/8/20/45 s
-  backoff) and gives up after the 4th attempt. Consequence: a clean
-  run after a long-warm cache occasionally drops 1–3 vp's worth of
-  candidates per election. Re-running fills in the misses (cached).
-  Long-term: route all calls through `withCache` so a single cold
-  warm-up is enough. *(added 2026-05-04)*
+  backoff, now jittered) and gives up after the 4th attempt.
+  Consequence: a clean run after a long-warm cache occasionally drops
+  1–3 vp's worth of candidates per election. Re-running fills in the
+  misses (cached). Long-term: route all calls through `withCache` so a
+  single cold warm-up is enough. *(added 2026-05-04)*
+- **Äänestysalue candidate data — run CI to finish populating** — the
+  prefetch fetches AA candidates into lazy per-kunta side files
+  `public/data/elections/{id}/aa-cands/{kunta}.json` (streamed, jittered
+  + paced, `.complete` marker per election for resumable re-runs, with a
+  coverage audit). Elections that HAVE an AA level and full code support:
+  **ek2023 ✓ / ek2019 ✓ (done, join-verified), eu2024 ✓ / pres ✓
+  (inline), kunta2025 + alue2025 (code validated, await a CI run).** The
+  municipal cell-explosion is fixed (per-kunta probe scoping — validated:
+  Uusimaa 4 701 cands → 57 per kunta). On CI: run `npm run prefetch` and
+  **re-run until each has an `aa-cands/.complete` marker** (cheap +
+  incremental; the 10-min dev cap + throttle prevent a full local run).
+  *(updated 2026-06-04)*
+- **AA-level backfill for kunta2021 / alue2022 / eu2019 — code done,
+  await CI population** — these three had `aa 0` in the baked monolith
+  (party data came from kunta-level multi-year tables), but the
+  äänestysalue data DOES exist in Tilastokeskus PxWeb. Implemented:
+  - **kunta2021 + alue2022**: registered their per-vp/per-HVA candidate-AA
+    tables (`12vs…12wu` / `13bv…13db`) and `synthesizeAaPartyRows`
+    aggregates candidate votes per AA into party shares (open-list ⇒
+    exact party totals), injected into the monolith → full AA level
+    (party + candidate side files). Validated live (kunta2021 Uusimaa
+    kunta 018: 64 candidates; alue2022 13bv).
+  - **eu2019**: no candidate-AA table in PxWeb, but party-AA table
+    `620_euvaa_2019_tau_108` has 1943 äänestysalue rows — `buildEu2019AaParty`
+    adds them → drillable party-coloured AA map. Validated live (1943 AAs,
+    party shares). Per-AA *candidate* lists for eu2019 exist only in the
+    Ministry of Justice tulospalvelu file (`epv-2019_ehd_maa.csv.zip`,
+    401 MB) — deferred (second source + size); eu2019 AA shows party data,
+    candidate scroll empty.
+
+  Full population needs a CI run (`npm run prefetch`, re-run to all
+  `.complete` markers); the 10-min dev cap + PxWeb throttle block a full
+  local run. *(updated 2026-06-04)*
+- **Äänestysalue candidate data — no tables for eu2019 / alue2022** —
+  eu2024 + all presidential already ship AA candidates inline.
+  **eu2019 and alue2022 have no candidate tables in Tilastokeskus's
+  published data** at *any* level —
+  the submodule registry confirms: regional-2022 has "No per-äänestysalue
+  candidate tables available in archive", and eu-2019 has only a
+  national-totals Sar-format table (`430_euvaa_2019_tau_105`), no
+  geographic breakdown. Hard data limitation, not a code gap. Possible
+  future: surface eu2019's national candidate totals at the country
+  level only (different archive-format path). *(added 2026-06-03)*
 
 ---
 

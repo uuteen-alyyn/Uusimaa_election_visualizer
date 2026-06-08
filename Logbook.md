@@ -2139,3 +2139,381 @@ Closed the gap end-to-end:
   before. Drilling into an aa shows the kunta's candidates
   (RegionResult for an aa doesn't carry a separate list —
   consistent with the placeholder grid representing the kunta).
+
+---
+
+## ENTRY feat: drill affordance + äänestysalue candidate data 2026-06-03
+
+**What was done**
+
+Two user requests after a round of real-world testing.
+
+*Part 1 — drill-down is now self-evident.*
+
+- `src/App.tsx`: added `↑ Takaisin` / `↓ Avaa alue` pill buttons at
+  the top-right of the map frame (new `DrillButton` helper), wired to
+  new `drillUpOne()` (aa→kunta, kunta|hva→country) and
+  `drillIntoSelected()` (mirrors a double-click). `↓` disables without
+  a selection or at aa level; `↑` disables at vp. Keyboard-accessible
+  (Enter/Space), styled like the existing AA Kartta/Lista toggle.
+- Added a persistent muted hint line under the Crumb spelling out the
+  gesture; wording adapts at aa level (only "go back" applies there).
+- Double-click + keyboard Enter still work unchanged; `HelpBox` copy
+  left as-is.
+
+*Part 2 — real candidate data at äänestysalue level.*
+
+- Root cause confirmed in code: the 5 depth elections (ek2023, ek2019,
+  kunta2025, kunta2021, alue2025) all have `candidate_by_aanestysalue`
+  tables, but `loadCandidatesForUnit` deliberately dropped aa codes and
+  `attachCandidates` only grouped vp/kunta/hva. eu2024 + all
+  presidential already carried aa candidates inline.
+- `scripts/build-fixtures.ts`:
+  * New `loadAaCandidatesForUnit` — the aa counterpart of
+    `loadCandidatesForUnit`; keeps ONLY aa codes and **chunks** the
+    area dimension so each query's `areas × candidates` stays under
+    `AA_CELL_BUDGET = 8000` (`batchSize = floor(8000 / candidateCount)`).
+    Helsinki (~167 aa × ~230 cand) splits into ~5 batches. Each batch is
+    `withCache` + `withRetry` wrapped.
+  * New `buildAaCandidateSideFiles` — groups aa candidates by aa id
+    (sum → sort → cap at `TOP_N_PER_REGION = 90`), buckets by parent
+    kunta via the existing `parseParentKunta`, and writes one file per
+    kunta to `public/data/elections/{id}/aa-cands/{kunta}.json`
+    (`{ aaRegionId: Candidate[] }`). Streams per-unit to keep the
+    working set small.
+  * Wired into `buildFixture` after the existing candidate block (depth
+    elections only; eu/pres unchanged).
+  * `withRetry` backoff now **jittered** (`base + random(0..base/2)`)
+    per the server team's note.
+  * Side-file bytes tracked separately (`aaSideFileBytes`) and logged on
+    their own line — they're lazy-loaded per kunta and don't count
+    against the eager page-weight budget.
+- `src/data/elections-source.ts`: new `listAaCandidates(electionId,
+  kunta)` on the interface + `LocalFixtureSource` — fetches the per-kunta
+  side file, caches by `id|kunta`, returns `{}` on 404 (mirrors
+  `loadHvaMap`).
+- `src/App.tsx`: new effect loads the drilled-in kunta's aa-candidate
+  side file into `aaCandsByRegion`; the ledger's aa branch now resolves
+  candidates **real-AA → inline-on-row → parent-kunta** instead of
+  always borrowing the kunta's list.
+- `src/components/Ledger.tsx`: `CandidatesList` now shows the first 12
+  rows with a **"Näytä lisää (N)"** reveal (full capped list in a scroll
+  box); resets per region via a `key`. Satisfies "capped + load more".
+
+*Part 2e — eu2019 / alue2022 (the two total-gap elections).*
+
+- Investigated the registry: regional-2022 has an explicit
+  "No per-äänestysalue candidate tables available in archive" comment,
+  and eu-2019 has only a national-totals Sar-format table
+  (`430_euvaa_2019_tau_105`), no geographic breakdown. So aa candidate
+  data genuinely doesn't exist in Tilastokeskus's published data for
+  these two — a hard data limitation, not a code gap. Documented in
+  `BACKLOG.md`; no code change.
+
+**Decisions**
+
+- **Per-kunta lazy side files, not monolith bloat.** Keeps the eager
+  per-election JSON light (server team's recommendation); the app
+  fetches one small kunta file on drill-down. The monolith already
+  carries aa *party* rows, so the join key is the aa `regionId`.
+- **Cap aa lists at the existing 90** (per user: "capped at current
+  cap"); the ledger reveals the rest with "Näytä lisää" — pure UI, no
+  refetch.
+- **Resolution order real-AA → inline → kunta** so the ledger always
+  has content (eu/pres keep inline aa candidates; no-data elections fall
+  back to the kunta ranking, same as before).
+
+**Files changed**
+
+- Modified: `src/App.tsx` (drill buttons + hint, aa-candidate effect +
+  ledger resolution), `src/components/Ledger.tsx` ("Näytä lisää"),
+  `src/data/elections-source.ts` (`listAaCandidates`),
+  `src/data/elections-source.test.ts` (+4 tests),
+  `scripts/build-fixtures.ts` (aa candidate fetch + chunking + jitter +
+  side files), `BACKLOG.md`, `Logbook.md` (this entry)
+
+**Build status**
+
+- `npm run typecheck` — clean (both configs)
+- `npx vite build` — clean, 266 KB raw / **84.15 KB gz** JS
+- `npm test` — **172 / 172 passed** (was 162 → +10; incl. 4 new
+  `listAaCandidates` tests)
+- `npm run prefetch` — re-run from a cold cache to regenerate fixtures
+  + the new aa-cands side files; verify the first aa join (side-file
+  regionId ↔ monolith aa regionId) before trusting it.
+
+**Test count**
+
+- 172 / 172
+
+**Commit hash**
+
+- Pending (user controls commits)
+
+**Notes**
+
+- Join-key risk (flagged in the plan): the side files key candidates by
+  the candidate table's aa `area_id`; the monolith keys aa rows by the
+  party table's `area_id`. Same db + same vp_ku_prefix format, but
+  verify the first join in dev.
+- The aa side files live under the gitignored
+  `public/data/elections/` tree — reproduced by CI, never committed.
+
+---
+
+## ENTRY fix: aa-candidate prefetch resilience (streaming + resumable) 2026-06-03
+
+**What was done**
+
+Hardened the äänestysalue-candidate prefetch after observing it never
+populated more than ek2023 in local runs. Diagnosed end-to-end:
+
+- **ek2023** fully populates (309 kunta side files, 1805 AAs) and the
+  join to the monolith AA rows is exact (1805 matched / 0 missed).
+- **ek2019** code path is correct — a cached Helsinki response
+  normalises to 4908 `aanestysalue` rows, area_id `01091001A`,
+  `parseParentKunta` → `091`. It just never got *written*.
+
+Root cause was **not** code: each local prefetch was killed ~10 min
+in (the harness caps a single command at 600 s) while a full cold
+prefetch needs ~80 min — stretched further by PxWeb's aggressive
+public rate limiting (28–45 s backoffs once warmed up). Every run
+died partway through ek2019, and a kill mid-write corrupted
+`cache-store.json` (the cache layer detects this and discards it).
+A secondary issue: when the AA queries *succeeded* (warm cache),
+`buildAaCandidateSideFiles` accumulated all ~13 units' rows in memory
+before writing, which is heavy on the bigger elections.
+
+Fixes in `scripts/build-fixtures.ts`:
+
+- **Stream per-unit writes** — a kunta belongs to exactly one
+  vaalipiiri, so each unit's kunta files are written and released
+  immediately instead of accumulating the whole election. Caps peak
+  memory and persists progress incrementally (a later kill leaves the
+  finished units on disk).
+- **`.complete` marker + idempotent skip** — after an election's AA
+  step finishes with no missing units, write
+  `aa-cands/.complete`; on the next run, skip that election entirely
+  (no fetch, no memory). This makes the prefetch **resumable**: run it
+  repeatedly and it makes forward progress one election at a time. A
+  partial election (some units rate-limited) writes no marker, so a
+  re-run retries it. Verified live: a re-run logged
+  `ek2023: aa-candidate side files already complete — skipping`.
+- **Diagnostic logging** — a 0-file outcome now logs how many units
+  returned rows, total rows, and aanestysalue rows, distinguishing
+  rate-limit drops from a format/grouping bug (previously silent).
+- Manually wrote `ek2023/aa-cands/.complete` since its 309 files were
+  produced by the pre-streaming code.
+
+**Operational note (for the server team's CI)**
+
+Local population of ek2019 / kunta2025 / kunta2021 / alue2025 isn't
+feasible in this dev environment (10-min command cap + PxWeb throttle
+hammered by repeated runs). On the CI runner — no short timeout, runs
+once per build — run `npm run prefetch`; if rate limiting interrupts
+it, **re-run until every depth election has an `aa-cands/.complete`
+marker** (the skip makes each re-run cheap and incremental). ek2023 is
+already complete and verified.
+
+**Build status**
+
+- `npm run typecheck` — clean (both configs)
+- `npm test` — 172 / 172 passed
+- `npx vite build` — clean, 84.15 KB gz JS
+- `npm run prefetch` — ek2023 AA files complete + verified (join
+  1805/0); other depth elections pending a CI run (resumable).
+
+**Notes**
+
+- No app-code change in this entry — purely prefetch resilience. The
+  UI already degrades gracefully where AA side files are absent
+  (falls back to the parent kunta's candidate list).
+
+**Update (same day) — incremental population confirmed**
+
+- The resumable design works in practice: an incremental run skipped
+  ek2023 (marker) and **completed ek2019** (311 kunta files, join
+  1940/0). **2 of 5 depth elections now populated + join-verified
+  locally** (ek2023, ek2019 — both parliamentary).
+- **Municipal (kunta2025/kunta2021) is the slow case** (see BACKLOG):
+  the per-vp candidate table lists all ~4 000 of the vp's municipal
+  candidates, so the cell limit forces ~2 AAs/query → ~300 queries/vp.
+  Completes on CI but is slow; perf follow-up logged (per-kunta
+  `Ehdokas` filtering). Regional (alue2025) should behave like
+  parliamentary. Partial kunta2025 output was removed so the UI falls
+  back cleanly to kunta-level candidates there until CI populates it.
+
+---
+
+## ENTRY feat: catch all AA candidate data — municipal fix, alue2022, audit 2026-06-04
+
+**What was done**
+
+Phase 3 of the AA-candidate work: close the remaining gaps and make the
+prefetch reliable enough to "catch all data". Investigated the real
+PxWeb + Ministry-of-Justice data landscape (live table listings + web
+research) and corrected two earlier wrong conclusions.
+
+*Municipal per-kunta fix (the real cell-count solution) —
+`scripts/build-fixtures.ts`.* `loadAaCandidatesForUnit` now branches:
+when the area-batch size collapses (`batchSize < 8`, i.e. the per-vp
+candidate list is huge — Uusimaa municipal has **4 701** candidates), it
+switches to per-kunta scoping. Municipal candidates are kunta-local
+(verified: 16 241 kunta2025 candidates each in exactly one kunta), so for
+each kunta it probes that kunta's aggregate row × all candidates to learn
+its own candidate ids, then fetches the kunta's AAs × only those ids.
+**Validated live**: Askola (KU018) probe → 57 candidates (vs 4 701
+vp-wide, an 82× narrowing), scoped fetch → 57 real AA rows; AA code
+`02018001` → kunta `018` joins to the monolith. The kunta-aggregate code
+format varies by table (bare `091` parliamentary / alue2022, `KU###`
+municipal) — discovered from the area variable rather than assumed
+(the first cut wrongly used the bare 3-digit code → PxWeb 400).
+
+*alue2022 table override — the data DOES exist.* The earlier "no
+candidate tables for alue2022" was based on the incomplete pinned
+submodule registry. The archive `StatFin_Passiivi/alvaa` has 21 per-HVA
+"Ehdokkaat äänestysalueittain … 2022" tables (`13bv…13db`). Added them as
+a local `AA_CANDIDATE_TABLE_OVERRIDES` map + a `resolveAaCandidateTables`
+resolver that all three candidate functions now use. Validated 13bv
+(Itä-Uusimaa): 371 candidates, AA code `01018001` → kunta `018`, query
+returns real rows.
+
+*Gentle pacing* (`pace()`, 250 ms min-gap between uncached PxWeb
+candidate/AA queries) — stays under the throttle instead of tripping
+28–45 s backoffs.
+
+*Coverage audit* — per election, logs `aa-candidate coverage N/M (P%)`
+(side-file AAs vs monolith AA rows) and warns below 95%, so a gap is
+never silent.
+
+*AA-level guard* — skip AA candidate fetching when the monolith has no
+äänestysalue level (see finding below), so we don't fetch orphan data.
+
+**Key finding — three elections have no äänestysalue level at all**
+
+Drilling to AA requires AA *party* rows in the monolith. Checked: eu2019,
+alue2022, **kunta2021** all have `aa 0` — their party data came from
+kunta-level multi-year tables, so the app can't drill into their
+äänestysalueet, and AA candidates would have nothing to attach to.
+kunta2025 (`aa 1655`) and alue2025 (`aa 1489`) *do* have AA levels — they
+are the real, achievable AA-candidate targets (plus the 4 already done).
+
+Giving the three a full AA level needs an AA *party*-data backfill first.
+alue2022 + kunta2021 are recoverable from PxWeb (their candidate-AA
+tables exist; party shares can be synthesised by aggregating candidate
+votes per AA, the presidential pattern). **eu2019** has no PxWeb AA
+candidate table at all — the data YLE shows comes from the Ministry of
+Justice tulospalvelu (`epv-2019_ehd_maa.csv.zip`, a 401 MB Latin-1
+fixed-format CSV). Backfilling eu2019's AA level (party + the 401 MB
+second-source candidate file) is disproportionate for one EU election
+(single national constituency); documented as a future option with the
+exact sources identified. The alue2022 override is kept (future-ready)
+but currently dormant behind the AA-level guard.
+
+**Decisions**
+
+- **Per-kunta scoping only when needed** (`batchSize < 8`): parliamentary
+  / regional / Helsinki municipal keep the fast area-batch path; only
+  multi-kunta municipal vps (huge candidate lists) take the probe path.
+- **Discover the kunta-aggregate code from the table**, never assume its
+  format — it varies (`091` vs `KU018`).
+- **Table-ID overrides live in `scripts/`**, not the pinned submodule —
+  matches the existing hardcoded EU/presidential IDs; no SHA churn.
+- **eu2019 AA = documented, not built** — proportionality + the
+  second-source/size cost outweigh the value for one EU election.
+
+**Files changed**
+
+- `scripts/build-fixtures.ts` — `pace()`; `AA_CANDIDATE_TABLE_OVERRIDES` +
+  `resolveAaCandidateTables` (used by `unitKeysForCandidateTables`,
+  `loadCandidatesForUnit`, `loadAaCandidatesForUnit`); per-kunta
+  municipal path; coverage audit; AA-level guard.
+- `BACKLOG.md`, `Logbook.md` (this entry).
+
+**Build status**
+
+- `npm run typecheck` — clean (both configs)
+- `npm test` — 172 / 172 passed
+- `npx vite build` — clean, 84.15 KB gz JS
+- Live validation: alue2022 (13bv) + municipal per-kunta (KU018) both
+  return correct, joinable AA candidate rows. Full population of
+  kunta2025 + alue2025 runs on CI (resumable via `.complete` markers;
+  the 10-min dev cap + throttle prevent a full local run).
+
+**Notes**
+
+- No app-code change this entry — prefetch only. UI already falls back to
+  kunta-level candidates where AA side files are absent.
+
+---
+
+## ENTRY feat: AA-level backfill for kunta2021 / alue2022 / eu2019 2026-06-04
+
+**What was done**
+
+User pushed back (correctly) that äänestysalue data exists for kunta2021,
+alue2022, eu2019 because YLE shows it. Verified directly against PxWeb —
+the data IS in Tilastokeskus, just not in the registered/baked path:
+
+- **kunta2021** — 12 per-vaalipiiri "Ehdokkaat äänestysalueittain
+  kuntavaaleissa {vp}, 2021" tables (`12vs,12wj…12wu`) in
+  `StatFin_Passiivi/kvaa`.
+- **alue2022** — 21 per-HVA candidate-AA tables (`13bv…13db`, added last
+  entry).
+- **eu2019** — party-AA table `620_euvaa_2019_tau_108` with 1943
+  äänestysalue rows (the euvaa candidate tables stop at vaalipiiri, so EU
+  has party-AA but no candidate-AA in PxWeb).
+
+Implemented in `scripts/build-fixtures.ts`:
+
+- Registered kunta2021's candidate-AA tables in `AA_CANDIDATE_TABLE_OVERRIDES`.
+- **`synthesizeAaPartyRows`** — for an election with no AA level but
+  candidate-AA tables (kunta2021, alue2022), aggregates candidate votes by
+  party per AA into party shares + total (open-list ⇒ exact party totals,
+  the `buildPres2024Fixture` pattern) and injects AA `RegionResult` rows
+  into the monolith. The existing AA-candidate side-file path then runs.
+  Candidate-AA queries are cached, so the side-file re-fetch is free.
+- **`buildEu2019AaParty`** — fetches table 620 (Äänestysalue × Puolue ×
+  votes, Sar-format, chunked + paced) → AA party rows for a drillable
+  party-coloured eu2019 map. No per-AA candidate lists (not in PxWeb).
+- Wired both into `buildFixture`'s AA-level backfill, before the
+  side-file guard.
+
+**Validated live (single-unit, read-only) — all correct + joinable**
+
+- kunta2021 12wj (Uusimaa): 5 554 candidates; aggregate codes are bare
+  3-digit ("018") here vs "KU018" for kunta2025 — the per-kunta probe
+  discovers the format from the table, so both work. Kunta 018: probe →
+  64 candidates, AA `02018001` → kunta `018`, 1936 votes / 8 parties.
+- alue2022 13bv (Itä-Uusimaa): 371 candidates, AA `01018001` → kunta `018`.
+- eu2019 620: 1943 AAs, AA `01091001A` → kunta `091`, 2417 votes / 16
+  parties.
+
+**Coverage after this entry** — every election now has a path to a full
+äänestysalue level from PxWeb: ek2023/ek2019 ✓ (done), eu2024/pres ✓
+(inline), kunta2025 + alue2025 (validated), **kunta2021 + alue2022**
+(synthesis), **eu2019** (party-only). The only residual gap is eu2019 per-AA
+*candidate* lists (Ministry of Justice 401 MB file; deferred).
+
+**Decisions**
+
+- **Synthesise party from candidates** (kunta2021, alue2022) rather than
+  hunt for per-year party-AA tables — uniform, reuses the candidate
+  machinery, and the cache makes the side-file pass free. Turnout/voters
+  stay 0 (no eligible-voter source in candidate tables; UI shows "—").
+- **eu2019 party-AA only** — its candidate-AA isn't in PxWeb; the 401 MB
+  OM file is disproportionate, so eu2019 ships a party-coloured AA map.
+
+**Files changed**
+
+- `scripts/build-fixtures.ts` — kunta2021 override; `synthesizeAaPartyRows`;
+  `buildEu2019AaParty`; AA-level backfill wiring.
+- `BACKLOG.md`, `Logbook.md` (this entry).
+
+**Build status**
+
+- `npm run typecheck` — clean (both configs)
+- `npm test` — 172 / 172 passed
+- `npx vite build` — clean, 84.15 KB gz JS
+- Full population runs on CI (resumable; 10-min dev cap + throttle block
+  a full local run).

@@ -101,6 +101,51 @@ describe("LocalFixtureSource.listAreas", () => {
   });
 });
 
+describe("LocalFixtureSource.listAaCandidates", () => {
+  const AA_CANDS = {
+    "091001A": [
+      { id: "01030152", name: "Valtonen Elina", party: "kok", votes: 320 },
+      { id: "01030001", name: "Meri Leena", party: "ps", votes: 210 },
+    ],
+    "091002A": [
+      { id: "01030099", name: "Andersson Li", party: "vas", votes: 150 },
+    ],
+  };
+
+  it("returns the per-kunta side file keyed by aa regionId", async () => {
+    mockFetchOk(AA_CANDS);
+    const src = new LocalFixtureSource();
+    const r = await src.listAaCandidates("ek2023", "091");
+    expect(Object.keys(r)).toEqual(["091001A", "091002A"]);
+    expect(r["091001A"]?.[0]?.name).toBe("Valtonen Elina");
+  });
+
+  it("returns {} when the side file is missing (404)", async () => {
+    mockFetchFailing();
+    const src = new LocalFixtureSource();
+    expect(await src.listAaCandidates("ek2023", "999")).toEqual({});
+  });
+
+  it("returns {} when fetch throws", async () => {
+    globalThis.fetch = vi
+      .fn()
+      .mockRejectedValue(new Error("offline")) as unknown as typeof fetch;
+    const src = new LocalFixtureSource();
+    expect(await src.listAaCandidates("ek2023", "091")).toEqual({});
+  });
+
+  it("caches per (electionId, kunta)", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValue({ ok: true, json: async () => AA_CANDS });
+    globalThis.fetch = fetchMock as unknown as typeof fetch;
+    const src = new LocalFixtureSource();
+    await src.listAaCandidates("ek2023", "091");
+    await src.listAaCandidates("ek2023", "091");
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+});
+
 describe("LocalFixtureSource caching", () => {
   it("fetches each electionId only once", async () => {
     const fetchMock = vi.fn().mockResolvedValue({

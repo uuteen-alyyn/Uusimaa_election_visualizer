@@ -343,7 +343,9 @@ function PartyShares({
                 open={candidatesOpen}
                 onToggle={() => setCandidatesOpen((o) => !o)}
               />
-              {candidatesOpen ? <CandidatesList candidates={cands} /> : null}
+              {candidatesOpen ? (
+                <CandidatesList key={result?.regionId ?? "x"} candidates={cands} />
+              ) : null}
             </div>
           ) : null}
         </>
@@ -495,30 +497,62 @@ function PartyShareBars({ result }: { result: RegionResult }): JSX.Element {
 
 /* ─── Candidates list ───────────────────────────────────────── */
 
-/** Scrollable candidate rows. Header + collapsible wrapper live
- *  in `PartyShares` (the candidate list is nested under the
- *  party-results toggle); this component is just the list body. */
+/** Initial number of candidate rows shown before the user opts to
+ *  reveal the rest. Keeps the list short by default (the stored list
+ *  can run to ~90 names per region); "Näytä lisää" reveals the full
+ *  capped list in a scroll box. */
+const CANDIDATES_INITIAL = 12;
+
+/** Candidate rows with a "show more" reveal. Header + collapsible
+ *  wrapper live in `PartyShares` (the candidate list is nested under
+ *  the party-results toggle); this component is just the list body.
+ *  Resets to collapsed whenever the candidate set changes (i.e. the
+ *  user navigates to another region) via the `key` the parent sets. */
 function CandidatesList({
   candidates,
 }: {
   candidates: ReadonlyArray<Candidate>;
 }): JSX.Element {
+  const [expanded, setExpanded] = useState(false);
+  const hasMore = candidates.length > CANDIDATES_INITIAL;
+  const shown =
+    expanded || !hasMore ? candidates : candidates.slice(0, CANDIDATES_INITIAL);
   return (
-    <div
-      role="list"
-      style={{
-        display: "flex",
-        flexDirection: "column",
-        gap: 2,
-        maxHeight: 280,
-        overflowY: "auto",
-        paddingRight: 4,
-      }}
-    >
-      {candidates.map((c, i) => (
-        <CandidateRow key={c.id} rank={i + 1} candidate={c} />
-      ))}
-    </div>
+    <>
+      <div
+        role="list"
+        style={{
+          display: "flex",
+          flexDirection: "column",
+          gap: 2,
+          // Only cap height + scroll once the full list is revealed;
+          // the initial short slice flows inline.
+          maxHeight: expanded ? 280 : undefined,
+          overflowY: expanded ? "auto" : "visible",
+          paddingRight: expanded ? 4 : 0,
+        }}
+      >
+        {shown.map((c, i) => (
+          <CandidateRow key={c.id} rank={i + 1} candidate={c} />
+        ))}
+      </div>
+      {hasMore && !expanded ? (
+        <button
+          type="button"
+          onClick={() => setExpanded(true)}
+          className="pill"
+          style={{
+            marginTop: 8,
+            cursor: "pointer",
+            fontSize: 11,
+            padding: "3px 12px",
+            background: "var(--paper-2)",
+          }}
+        >
+          Näytä lisää ({candidates.length - CANDIDATES_INITIAL})
+        </button>
+      ) : null}
+    </>
   );
 }
 

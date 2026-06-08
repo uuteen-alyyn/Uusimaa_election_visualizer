@@ -51,6 +51,16 @@ export interface ElectionDataSource {
    *  Used by the formula composer to offer per-candidate chips.
    *  Returns `[]` when the election has no candidate data. */
   listCandidates(electionId: ElectionId): Promise<Candidate[]>;
+
+  /** Per-äänestysalue candidate lists for one kunta, lazily fetched
+   *  from the per-kunta side file written by the build-time prefetch.
+   *  Keyed by äänestysalue `regionId` (the same id `listAreas("aa")`
+   *  returns). Returns `{}` when the election/kunta has no side file
+   *  (no AA candidate data, or an older deploy). */
+  listAaCandidates(
+    electionId: ElectionId,
+    kunta: RegionId,
+  ): Promise<Record<string, Candidate[]>>;
 }
 
 /** Wire shape of `public/data/kunta-hva.json` — emitted by the
@@ -210,5 +220,32 @@ export class LocalFixtureSource implements ElectionDataSource {
     // "in search candidate I cannot find all of the candidates").
     this.candidateCache.set(electionId, list);
     return list;
+  }
+
+  /** Per-kunta AA-candidate side files, cached by `${electionId}|${kunta}`.
+   *  Each file is `{ [aaRegionId]: Candidate[] }`. */
+  private aaCandidateCache = new Map<string, Record<string, Candidate[]>>();
+
+  async listAaCandidates(
+    electionId: ElectionId,
+    kunta: RegionId,
+  ): Promise<Record<string, Candidate[]>> {
+    const key = `${electionId}|${kunta}`;
+    const cached = this.aaCandidateCache.get(key);
+    if (cached) return cached;
+
+    let data: Record<string, Candidate[]>;
+    try {
+      const res = await fetch(
+        `/data/elections/${electionId}/aa-cands/${kunta}.json`,
+      );
+      data = res.ok
+        ? ((await res.json()) as Record<string, Candidate[]>)
+        : {};
+    } catch {
+      data = {};
+    }
+    this.aaCandidateCache.set(key, data);
+    return data;
   }
 }

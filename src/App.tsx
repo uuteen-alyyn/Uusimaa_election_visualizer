@@ -614,6 +614,27 @@ export function App(): JSX.Element {
     };
   }, [source, level, parentKunta, election]);
 
+  // Per-äänestysalue candidate lists for the drilled-in kunta, lazily
+  // fetched from the per-kunta side file the prefetch writes. Keyed by
+  // aa regionId. Empty for elections without AA candidate side files
+  // (eu/pres carry their AA candidates inline on the row instead).
+  const [aaCandsByRegion, setAaCandsByRegion] = useState<
+    Record<string, Candidate[]>
+  >({});
+  useEffect(() => {
+    if (level !== "aa" || !parentKunta) {
+      setAaCandsByRegion({});
+      return;
+    }
+    let cancelled = false;
+    void source.listAaCandidates(election, parentKunta).then((m) => {
+      if (!cancelled) setAaCandsByRegion(m);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [source, level, parentKunta, election]);
+
   // Parallel load of the ref-election's äänestysalue rows for the
   // same drilled-in kunta — required for change mode at aa level.
   // Empty when level !== "aa" or the ref fixture has no aa data.
@@ -1126,6 +1147,22 @@ export function App(): JSX.Element {
     setSelected(null);
   }, []);
 
+  /** Go up exactly one level — wired to the "↑ Takaisin" button.
+   *  aa → kunta, kunta|hva → country. No-op at vp (button is
+   *  disabled there). */
+  const drillUpOne = useCallback(() => {
+    if (level === "aa") drillUpToVp();
+    else if (level === "kunta" || level === "hva") drillUpToCountry();
+  }, [level, drillUpToVp, drillUpToCountry]);
+
+  /** Drill into the currently-selected region — wired to the
+   *  "↓ Avaa alue" button. Mirrors a double-click on the map.
+   *  No-op without a selection or at aa level (button is disabled
+   *  in those cases). */
+  const drillIntoSelected = useCallback(() => {
+    if (selected != null && level !== "aa") onZoomIn(selected);
+  }, [selected, level, onZoomIn]);
+
   /* ─── Export handlers ───────────────────────────────────── */
 
   const exportSvg = useCallback(() => {
@@ -1244,26 +1281,25 @@ export function App(): JSX.Element {
       }
       if (level === "aa") {
         const aa = aaResults.find((r) => r.regionId === selected);
-        // AA fixtures don't carry per-AA candidate lists (the
-        // build-fixtures script only attaches candidates at vp /
-        // kunta / hva). Borrow the parent kunta's candidates so
-        // the ledger's "eniten ääniä" scroll still has content
-        // when the user is at AA level. The ledger header rules
-        // already show AA-specific votes / shares above, so the
-        // candidate list reads as the kunta's ranking — flagged
-        // by passing it via `result.candidates` only when the AA
-        // itself has none.
-        const enriched =
-          result && (!result.candidates || result.candidates.length === 0)
-            ? (() => {
-                const parentId = result.parentKunta;
-                const kunta = parentId ? currentResults.get(parentId) : null;
-                if (kunta?.candidates && kunta.candidates.length > 0) {
-                  return { ...result, candidates: kunta.candidates };
-                }
-                return result;
-              })()
-            : result;
+        // Candidate resolution order for the "eniten ääniä" scroll:
+        //   1. real per-AA candidates from the side file (the depth
+        //      elections: ek/kunta/alue) — the AA's own ranking
+        //   2. candidates already on the AA row (eu/pres carry these
+        //      inline on the fixture row)
+        //   3. parent kunta's list as a stand-in, so the scroll still
+        //      has content for elections with no AA candidate data
+        const enriched = (() => {
+          if (!result) return result;
+          const own = aaCandsByRegion[selected];
+          if (own && own.length > 0) return { ...result, candidates: own };
+          if (result.candidates && result.candidates.length > 0) return result;
+          const parentId = result.parentKunta;
+          const kunta = parentId ? currentResults.get(parentId) : null;
+          if (kunta?.candidates && kunta.candidates.length > 0) {
+            return { ...result, candidates: kunta.candidates };
+          }
+          return result;
+        })();
         return {
           result: enriched,
           label: aa?.label ?? selected,
@@ -1314,6 +1350,7 @@ export function App(): JSX.Element {
     currentResults,
     aaById,
     aaResults,
+    aaCandsByRegion,
     selected,
     level,
     parentSlug,
@@ -1383,6 +1420,24 @@ export function App(): JSX.Element {
         <section className="col col-left" aria-label="Otsikko ja päätunnusluvut">
           <h1>Vaalit — tulosvisualisointi</h1>
           <Crumb steps={crumbSteps} />
+
+          {/* Drill-down hint — makes the open-region interaction
+              self-evident (the buttons live on the map; this line
+              spells out the gesture). Wording adapts at aa level,
+              where you can only go back up. */}
+          <div
+            style={{
+              fontSize: 11,
+              opacity: 0.6,
+              fontStyle: "italic",
+              lineHeight: 1.4,
+              marginTop: -2,
+            }}
+          >
+            {level === "aa"
+              ? "Käytä ↑ Takaisin -painiketta tai murupolkua palataksesi."
+              : "Kaksoisklikkaa aluetta — tai valitse se ja paina ↓ Avaa alue — porautuaksesi sisään. ↑ Takaisin palaa."}
+          </div>
 
           {/* Vaali + Mittari share a single horizontal row by stacking
               their tiny labels above the controls. 2-col grid keeps
@@ -1456,6 +1511,38 @@ export function App(): JSX.Element {
             />
           ) : (
             <div className="map-frame">
+              {/* Drill ↑/↓ buttons — always visible at top-right so the
+                  open-region interaction is self-evident. Double-click
+                  (and keyboard Enter) still work. Styled like the AA
+                  Kartta/Lista toggle below for visual consistency. */}
+              <div
+                style={{
+                  position: "absolute",
+                  top: 4,
+                  right: 4,
+                  zIndex: 5,
+                  display: "inline-flex",
+                  gap: 4,
+                  background: "var(--paper-2)",
+                  border: "var(--border-thin) solid var(--line)",
+                  borderRadius: "var(--radius-pill)",
+                  padding: 3,
+                  boxShadow: "var(--shadow-soft)",
+                }}
+              >
+                <DrillButton
+                  label="↑ Takaisin"
+                  title="Palaa ylemmälle tasolle"
+                  disabled={level === "vp"}
+                  onClick={drillUpOne}
+                />
+                <DrillButton
+                  label="↓ Avaa alue"
+                  title="Poraudu valitun alueen sisään (tai kaksoisklikkaa karttaa)"
+                  disabled={selected == null || level === "aa"}
+                  onClick={drillIntoSelected}
+                />
+              </div>
               {/* Map / Lista toggle — visible only at AA level
                   where the dense square grid is hard on touch.
                   Sticks to the top-left of the map frame so it
@@ -1838,6 +1925,49 @@ function LoadingStamp({ electionLabel }: { electionLabel: string }): JSX.Element
         Ladataan {electionLabel}…
       </div>
     </div>
+  );
+}
+
+/** Small pill button for the map's drill ↑/↓ cluster. Keyboard-
+ *  accessible; renders dimmed + non-interactive when disabled. */
+function DrillButton({
+  label,
+  title,
+  disabled,
+  onClick,
+}: {
+  label: string;
+  title: string;
+  disabled: boolean;
+  onClick: () => void;
+}): JSX.Element {
+  return (
+    <span
+      role="button"
+      tabIndex={disabled ? -1 : 0}
+      aria-disabled={disabled}
+      title={title}
+      onClick={() => {
+        if (!disabled) onClick();
+      }}
+      onKeyDown={(e) => {
+        if (disabled) return;
+        if (e.key === "Enter" || e.key === " ") {
+          e.preventDefault();
+          onClick();
+        }
+      }}
+      className="pill"
+      style={{
+        cursor: disabled ? "default" : "pointer",
+        fontSize: 11,
+        padding: "2px 10px",
+        opacity: disabled ? 0.4 : 1,
+        background: "var(--paper)",
+      }}
+    >
+      {label}
+    </span>
   );
 }
 
