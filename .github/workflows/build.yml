@@ -82,12 +82,28 @@ jobs:
       # silent crash on the runner doesn't ship a half-built dist.
       - name: Sanity-check prefetch summary
         run: |
+          # (1) Partial/killed run (OOM etc.) logs an EXIT line.
           if grep -q "\[prefetch\] EXIT" build.log; then
             echo "::error::Prefetch reported a partial run — refusing to publish dist."
             grep "\[prefetch\] EXIT" build.log
             exit 1
           fi
-          echo "Prefetch completed cleanly."
+          # (2) Degraded run: a cold build that PxWeb rate-limits writes
+          # `no_data` placeholders for the elections it couldn't fetch and
+          # still "completes". Refuse to publish unless ENOUGH elections
+          # carry real data (a healthy build has 13 of 14 — only ek2027,
+          # the future election, is legitimately no_data). This stops a
+          # throttled cold run from overwriting a good dist with mostly
+          # empty data. Re-run the workflow to warm the PxWeb cache.
+          WITH_DATA=$(grep -oE '\[prefetch\] done — [0-9]+' build.log | grep -oE '[0-9]+' | head -1)
+          echo "Elections with data: ${WITH_DATA:-0}"
+          grep -E '\[prefetch\] +[a-z0-9]+: aa-candidate coverage' build.log || true
+          if [ -z "$WITH_DATA" ] || [ "$WITH_DATA" -lt 12 ]; then
+            echo "::error::Only ${WITH_DATA:-0} elections returned data (need >=12) — refusing to publish a degraded build. Re-run to warm the PxWeb cache."
+            grep "\[prefetch\] done —" build.log || true
+            exit 1
+          fi
+          echo "Prefetch completed cleanly with ${WITH_DATA} elections."
 
       # Save the cache after a successful build so the next run starts
       # warm. actions/cache@v4 saves on a hit, but we want it to save
