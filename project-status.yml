@@ -1,0 +1,8 @@
+# Uusimaa_election_visualizer — project metadata (Code Cockpit convention)
+# Added by Dataämpäri (Adoptoi). Edit status/phase to taste.
+name: Uusimaa_election_visualizer
+owner: uuteen-alyyn
+status: aktiivinen   # idea | suunniteltu | aktiivinen | valmis | julkaistu | tauolla | hylätty
+phase: 
+priority: medium
+server_status: unknown
