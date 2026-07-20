@@ -5,4 +5,4 @@ owner: uuteen-alyyn
 status: aktiivinen   # idea | suunniteltu | aktiivinen | valmis | julkaistu | tauolla | hylätty
 phase: 
 priority: medium
-server_status: unknown
+server_status: deployed
