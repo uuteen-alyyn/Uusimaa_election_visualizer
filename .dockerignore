@@ -1,0 +1,6 @@
+# The image needs only the built site and the nginx config. Everything else in
+# this repository — source, election fixtures, submodules, docs — would be
+# uploaded to the Docker daemon as build context for no reason.
+*
+!dist/
+!nginx/

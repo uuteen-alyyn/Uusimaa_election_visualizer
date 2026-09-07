@@ -1,0 +1,106 @@
+name: Publish container image
+
+# Packages the already-built `dist` branch as a commit-pinned container image
+# for the home server. See home-server-infra decision 005: production pulls
+# commit-pinned images from GHCR and never builds software itself.
+#
+# Deliberately SEPARATE from build.yml. That workflow runs the PxWeb prefetch,
+# which is rate-limited badly enough that a cold run can take hours, and it
+# refuses to publish a degraded build. Packaging must not re-trigger any of
+# that, so this reads the dist branch build.yml already published.
+#
+# Triggers:
+#   - push to the `dist` branch: a fresh build automatically produces a fresh
+#     image, so the two never drift apart.
+#   - workflow_dispatch: repackage without rebuilding, e.g. after changing the
+#     Dockerfile or the nginx config.
+
+on:
+  push:
+    branches: [dist]
+  workflow_dispatch:
+
+concurrency:
+  group: publish-image
+  cancel-in-progress: true
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      # main carries the Dockerfile and the nginx config; the dist branch
+      # carries the site. Two checkouts, because the build needs both and they
+      # are deliberately not in the same place.
+      - name: Checkout main (Dockerfile, nginx config)
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 1
+
+      - name: Checkout the dist branch into ./dist
+        uses: actions/checkout@v4
+        with:
+          ref: dist
+          path: dist
+          fetch-depth: 1
+
+      # The tag must mean one thing regardless of what triggered the run.
+      # github.sha is the DIST commit on a dist push and the MAIN commit on a
+      # manual dispatch, so using it directly would give the same image two
+      # different kinds of name. Resolve main's SHA explicitly instead.
+      #
+      # This runs BEFORE the .git removal below, because it reads dist's SHA.
+      - name: Resolve the tag
+        id: tag
+        run: |
+          set -euo pipefail
+          MAIN_SHA=$(git rev-parse HEAD)
+          DIST_SHA=$(git -C dist rev-parse HEAD)
+          echo "main_sha=$MAIN_SHA" >> "$GITHUB_OUTPUT"
+          echo "Image tag (main):    $MAIN_SHA"
+          echo "Site content (dist): $DIST_SHA"
+
+      # A dist branch checkout brings its own .git. It must not end up in the
+      # image: dead weight, and it would publish the build history inside a
+      # container served to the public.
+      - name: Drop the nested .git and report what will ship
+        run: |
+          set -euo pipefail
+          rm -rf dist/.git
+          test -f dist/index.html || { echo "::error::dist/index.html missing — the dist branch does not look like a built site"; exit 1; }
+          echo "files: $(find dist -type f | wc -l)"
+          echo "size:  $(du -sh dist | cut -f1)"
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # Tagged with the SHA of the commit on main that this image's config came
+      # from, so `deploy.sh vaalikartta <sha>` names something reproducible.
+      - name: Build and push
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true
+          tags: |
+            ghcr.io/${{ github.repository }}:${{ steps.tag.outputs.main_sha }}
+            ghcr.io/${{ github.repository }}:latest
+          # revision matches the TAG, not github.sha — on a dist push those
+          # differ, and a label that disagrees with the tag is worse than none.
+          labels: |
+            org.opencontainers.image.revision=${{ steps.tag.outputs.main_sha }}
+            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+
+      - name: Report the deployable tag
+        run: |
+          echo "### Deploy this" >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+          echo "deploy.sh vaalikartta ${{ steps.tag.outputs.main_sha }}" >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY

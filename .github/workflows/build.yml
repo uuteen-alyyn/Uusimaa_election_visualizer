@@ -13,6 +13,15 @@ name: Build & publish dist branch
 on:
   push:
     branches: [main]
+    # Packaging files do not change the site's data, and this build costs up to
+    # 350 minutes of PxWeb queries against a rate-limited public API. Editing a
+    # Dockerfile must not re-run the prefetch. publish-image.yml picks these up
+    # instead, from the dist branch this workflow already published.
+    paths-ignore:
+      - 'Dockerfile'
+      - '.dockerignore'
+      - 'nginx/**'
+      - '.github/workflows/publish-image.yml'
   workflow_dispatch:
 
 # Only one build at a time can publish to `dist` — concurrent runs on
