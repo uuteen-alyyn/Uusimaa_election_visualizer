@@ -61,6 +61,16 @@ jobs:
           MAIN_SHA=$(git rev-parse HEAD)
           DIST_SHA=$(git -C dist rev-parse HEAD)
           echo "main_sha=$MAIN_SHA" >> "$GITHUB_OUTPUT"
+
+          # Container repository names must be lowercase, and this repository
+          # is not ("Uusimaa_election_visualizer"). github.repository keeps the
+          # original case, so using it directly fails with "repository name must
+          # be lowercase". Computed rather than hardcoded so a rename cannot
+          # silently reintroduce the problem.
+          IMAGE="ghcr.io/$(echo '${{ github.repository }}' | tr '[:upper:]' '[:lower:]')"
+          echo "image=$IMAGE" >> "$GITHUB_OUTPUT"
+
+          echo "Image:               $IMAGE"
           echo "Image tag (main):    $MAIN_SHA"
           echo "Site content (dist): $DIST_SHA"
 
@@ -90,8 +100,8 @@ jobs:
           context: .
           push: true
           tags: |
-            ghcr.io/${{ github.repository }}:${{ steps.tag.outputs.main_sha }}
-            ghcr.io/${{ github.repository }}:latest
+            ${{ steps.tag.outputs.image }}:${{ steps.tag.outputs.main_sha }}
+            ${{ steps.tag.outputs.image }}:latest
           # revision matches the TAG, not github.sha — on a dist push those
           # differ, and a label that disagrees with the tag is worse than none.
           labels: |
