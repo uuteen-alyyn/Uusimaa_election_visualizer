@@ -203,21 +203,29 @@ export class LocalFixtureSource implements ElectionDataSource {
       return Array.from(byId.values()).sort((a, b) => b.votes - a.votes);
     };
 
-    // Try vp-level first — vp aggregate rows are the cleanest source
-    // when the build-time prefetch attaches candidates there
-    // (parliamentary, regional, presidential).
-    let list = mergeFrom((a) => /^\d{2}$/.test(a.regionId));
-    // Fall back to kunta-level when vp has no candidates
-    // (kuntavaalit: candidate tables don't carry a VP## aggregate
-    //  row, so candidates only appear on the 3-digit kunta rows).
-    if (list.length === 0) {
-      list = mergeFrom((a) => /^\d{3}$/.test(a.regionId));
-    }
+    // vp aggregate rows are the cleanest source when the build-time
+    // prefetch attaches candidates there (parliamentary, regional,
+    // presidential): each entry's votes already sum across the whole
+    // vaalipiiri. Kunta-level rows don't carry a VP## aggregate for
+    // kuntavaalit, so candidates there only appear on the 3-digit
+    // kunta rows.
+    const vpList = mergeFrom((a) => /^\d{2}$/.test(a.regionId));
+    const kuntaList = mergeFrom((a) => /^\d{3}$/.test(a.regionId));
+    // Union by id, preferring the vp-level entry (complete vp total)
+    // when present. A candidate can rank inside their home kunta's
+    // top-N (few rivals there) while falling outside the vp-wide
+    // top-N (aggregated across every kunta in the district) — without
+    // this merge that candidate silently disappears from the picker
+    // even though the fixture already has their kunta-level votes.
+    const byId = new Map<string, Candidate>();
+    for (const c of vpList) byId.set(c.id, c);
+    for (const c of kuntaList) if (!byId.has(c.id)) byId.set(c.id, c);
     // No cap — the binding picker filters by name and only renders
     // ~25 results at a time, and the data already lives in memory
     // from the fixture load. Capping would silently hide candidates
     // who fell outside the top-N nationally (the user's complaint:
     // "in search candidate I cannot find all of the candidates").
+    const list = Array.from(byId.values()).sort((a, b) => b.votes - a.votes);
     this.candidateCache.set(electionId, list);
     return list;
   }

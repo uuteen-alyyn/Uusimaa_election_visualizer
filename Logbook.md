@@ -2574,3 +2574,60 @@ hadn't pulled).
 
 **Build status**: typecheck clean (both); `npm test` 172/172; vite build
 84 KB gz.
+
+---
+
+## ENTRY fix: listCandidates() dropped a candidate's kunta-level votes whenever the vp-level list was non-empty 2026-11-14
+
+**What was done**
+
+- Bug report (Dataämpäri bug capture, GitHub issue #1): user couldn't
+  find their own candidate row ("Santeri Leinonen") in the custom-rule
+  / formula composer's candidate search for any election.
+- Root cause in `src/data/elections-source.ts`
+  `LocalFixtureSource.listCandidates()`: the vp-level vs. kunta-level
+  merge was all-or-nothing — kunta-level rows were only consulted
+  when the vp-level merge was completely empty (true only for
+  kuntavaalit, which have no vp aggregate row). For every other
+  election type (ek, alue, eu, pres) the vp-level list was non-empty,
+  so kunta-level candidate rows were discarded outright even though
+  the fixture already had them. A candidate can rank inside their
+  home kunta's top-N (few rivals there) while falling outside the
+  vp-wide top-N (aggregated across every kunta in a multi-kunta
+  district like Uusimaa) — exactly the case that made candidates
+  silently vanish from the picker.
+- Fix: union vp-level and kunta-level candidate lists by id, keeping
+  the vp-level entry (the complete vp total) when a candidate is
+  present there, and only falling back to the kunta-level entry
+  (partial, kunta-only vote count) when the candidate has no vp-level
+  entry at all. This avoids double-counting votes for candidates
+  already captured at vp-level while surfacing ones that were being
+  dropped entirely.
+- Added `describe("LocalFixtureSource.listCandidates", …)` to
+  `src/data/elections-source.test.ts` (4 new tests): merge doesn't
+  double-count an id present at both levels, a kunta-only-ranked
+  candidate surfaces, kuntavaalit (no vp aggregate) still works via
+  kunta-only fallback, no-data fixture still returns `[]`.
+
+**Files changed**
+
+- `src/data/elections-source.ts`
+- `src/data/elections-source.test.ts`
+
+**Build status**
+
+- `npx tsc --noEmit` — clean
+- `npx vite build` — clean (84.20 KB gz JS)
+- `npm test` — **176 / 176 passed** (was 172 → +4)
+- `npm run prefetch` not run (needs live PxWeb network, unavailable in
+  this sandbox) — fix only touches the already-fetched fixture's
+  in-memory merge, no new data needed.
+
+**Notes**
+
+- Did not touch `scripts/build-fixtures.ts`'s pre-existing
+  `tsconfig.scripts.json` typecheck errors (confirmed present before
+  this change via `git stash`) — unrelated to this fix.
+- Commented on GitHub issue #1 with a plain-language summary. Issue
+  left open; no deploy triggered (deploy is a separate, owner-decided
+  task per `CLAUDE.md`).

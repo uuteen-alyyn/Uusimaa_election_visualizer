@@ -146,6 +146,85 @@ describe("LocalFixtureSource.listAaCandidates", () => {
   });
 });
 
+describe("LocalFixtureSource.listCandidates", () => {
+  const WITH_CANDIDATES: FixtureFile = {
+    electionId: "ek2023",
+    areas: [
+      {
+        regionId: "02",
+        electionId: "ek2023",
+        votes: 565306,
+        voters: 0,
+        turnout: 0,
+        shares: { kok: 26.2, sdp: 19.9 },
+        candidates: [
+          { id: "A", name: "Valtonen Elina", party: "kok", votes: 12000 },
+          { id: "B", name: "Meri Leena", party: "ps", votes: 9000 },
+        ],
+      },
+      {
+        regionId: "091",
+        electionId: "ek2023",
+        votes: 200000,
+        voters: 0,
+        turnout: 0,
+        shares: { kok: 30, sdp: 18 },
+        candidates: [
+          // Already present at vp-level: kunta-level votes must NOT
+          // be added on top (would double-count the same votes).
+          { id: "A", name: "Valtonen Elina", party: "kok", votes: 3000 },
+          // Ranked inside this kunta's top-N but didn't make the
+          // vp-wide top-N — must still surface via the kunta merge.
+          { id: "C", name: "Leinonen Santeri", party: "vihr", votes: 50 },
+        ],
+      },
+    ],
+  };
+
+  it("merges vp-level and kunta-level candidates, keeping the vp total for ids present at vp-level", async () => {
+    mockFetchOk(WITH_CANDIDATES);
+    const src = new LocalFixtureSource();
+    const list = await src.listCandidates("ek2023");
+    const byId = new Map(list.map((c) => [c.id, c]));
+    expect(byId.get("A")?.votes).toBe(12000); // not 15000 — no double count
+    expect(byId.get("B")?.votes).toBe(9000);
+  });
+
+  it("surfaces a candidate who only ranks inside their home kunta's top-N", async () => {
+    mockFetchOk(WITH_CANDIDATES);
+    const src = new LocalFixtureSource();
+    const list = await src.listCandidates("ek2023");
+    expect(list.find((c) => c.id === "C")?.name).toBe("Leinonen Santeri");
+  });
+
+  it("falls back to kunta-level only when there are no vp-level candidates (kuntavaalit)", async () => {
+    mockFetchOk({
+      electionId: "kunta2025",
+      areas: [
+        { regionId: "02", electionId: "kunta2025", votes: 1, voters: 0, turnout: 0, shares: {} },
+        {
+          regionId: "091",
+          electionId: "kunta2025",
+          votes: 1,
+          voters: 0,
+          turnout: 0,
+          shares: {},
+          candidates: [{ id: "D", name: "Someone", party: "kok", votes: 500 }],
+        },
+      ],
+    } satisfies FixtureFile);
+    const src = new LocalFixtureSource();
+    const list = await src.listCandidates("kunta2025");
+    expect(list.map((c) => c.id)).toEqual(["D"]);
+  });
+
+  it("returns [] on a no-data fixture", async () => {
+    mockFetchOk(NO_DATA);
+    const src = new LocalFixtureSource();
+    expect(await src.listCandidates("ek2027")).toEqual([]);
+  });
+});
+
 describe("LocalFixtureSource caching", () => {
   it("fetches each electionId only once", async () => {
     const fetchMock = vi.fn().mockResolvedValue({
