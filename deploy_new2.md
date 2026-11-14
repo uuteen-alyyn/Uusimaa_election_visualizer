@@ -1,3 +1,10 @@
+> **Vanhentunut 2026-09-08.** Sovellus ei enää pyöri Hetznerillä. Se ajetaan kotiserverin
+> `public-prod`-koneella osoitteessa https://vaalikartta.santerileinonen.fi imagena
+> `ghcr.io/uuteen-alyyn/uusimaa_election_visualizer:<main-sha>`. Julkaisu kotiserverillä:
+> `sudo /srv/scripts/deploy.sh vaalikartta <main-sha>` (paluu: `--rollback`). Image syntyy
+> itsestään, kun build.yml onnistuu (publish-image.yml). Pino: `home-server-infra`
+> `stacks/public/vaalikartta`. Alla oleva teksti on historiaa.
+
 # Deployment — server-team setup guide (2026-06)
 
 Complete, current instructions for getting **vaalit.leinonensanteri.fi**

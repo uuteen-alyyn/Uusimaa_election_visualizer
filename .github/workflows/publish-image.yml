@@ -10,12 +10,19 @@ name: Publish container image
 # that, so this reads the dist branch build.yml already published.
 #
 # Triggers:
-#   - push to the `dist` branch: a fresh build automatically produces a fresh
-#     image, so the two never drift apart.
+#   - workflow_run of build.yml: a successful build of main produces the image
+#     tagged with the commit that was built. (The `push: dist` trigger below
+#     never fires in practice: build.yml pushes dist with GITHUB_TOKEN, and
+#     GitHub does not start workflows from such pushes. Found 2026-11-14, when
+#     a fix sat on dist for hours without an image.)
+#   - push to the `dist` branch: kept for a dist push made by a person.
 #   - workflow_dispatch: repackage without rebuilding, e.g. after changing the
 #     Dockerfile or the nginx config.
 
 on:
+  workflow_run:
+    workflows: ["Build & publish dist branch"]
+    types: [completed]
   push:
     branches: [dist]
   workflow_dispatch:
@@ -26,6 +33,11 @@ concurrency:
 
 jobs:
   publish:
+    # A failed or cancelled build, or one of another branch, publishes nothing.
+    if: >-
+      github.event_name != 'workflow_run' ||
+      (github.event.workflow_run.conclusion == 'success' &&
+       github.event.workflow_run.head_branch == 'main')
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -38,7 +50,8 @@ jobs:
       - name: Checkout main (Dockerfile, nginx config)
         uses: actions/checkout@v4
         with:
-          ref: main
+          # The built commit on a workflow_run, so the tag names what was built.
+          ref: ${{ github.event.workflow_run.head_sha || 'main' }}
           fetch-depth: 1
 
       - name: Checkout the dist branch into ./dist
